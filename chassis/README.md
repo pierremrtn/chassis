@@ -19,6 +19,11 @@ Packages:
 - chassis_flutter (view_model + widget tree utils + )
 
 
+// TODO:
+- rename watch into stream
+- introduce private Read / Watch query type to prevent ReadHandler with ReadWatchQuery
+- handler<T>() method in mediator
+
 
 // TODO:
 
@@ -106,3 +111,4 @@ rule engine:
 ```
 
 // TODO: logs / midleware for mediator
+

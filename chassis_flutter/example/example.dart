@@ -21,21 +21,20 @@ class UserQueryHandler extends ReadAndWatchHandler<UserQuery, UserData> {
 }
 
 // UI
-
 class MyViewModel extends ViewModel<int> {
   MyViewModel({
-    required this.userQuery,
+    required UserQueryHandler userHandler,
   }) : super(0) {
-    autoDispose(userQuery);
+    userQuery = readHandle(userHandler);
   }
 
-  final ReadAndWatchHandle<UserQuery, UserData> userQuery;
+  late final FutureHandle<UserQuery, UserData> userQuery;
 }
 
 // Widget tree
 
-// final p = Provider(
-//   create: (context) => MyViewModel(
-//     userQuery: mediator.readWatchHandle(),
-//   ),
-// );
+final p = Provider(
+  create: (context) => MyViewModel(
+    userHandler: Mediator().handler(),
+  ),
+);

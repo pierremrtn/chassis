@@ -4,10 +4,6 @@ import 'package:chassis/chassis.dart';
 import 'package:rxdart/subjects.dart';
 
 abstract base class Handle<P, R> with Disposable {
-  Handle(Mediator mediator) : _mediator = mediator;
-
-  final Mediator _mediator;
-
   final BehaviorSubject<HandleState<R>> _stateController =
       BehaviorSubject.seeded(HandleStateInitial<R>());
 
@@ -279,26 +275,14 @@ final class _StreamHandleExecutor<Q, T> extends HandleExecutor<Q, T> {
   }
 }
 
-abstract base class QueryHandle<Q extends Query<R>, R> extends Handle<Q, R> {
-  QueryHandle(super.mediator);
+final class FutureHandle<P, R> extends Handle<P, R> {
+  FutureHandle(this._handler);
+
+  final Future<R> Function(P) _handler;
 
   @override
   void execute(
-    // ignore: avoid_renaming_method_parameters
-    Q query, {
-    HandleLoadingCallback<void>? onLoading,
-    HandleSuccessCallback<R, void>? onSuccess,
-    HandleErrorCallback<void>? onError,
-    HandleCancelationCallback<void>? onCancelled,
-  });
-}
-
-final class ReadHandle<Q extends Read<R>, R> extends QueryHandle<Q, R> {
-  ReadHandle(super.mediator);
-
-  @override
-  void execute(
-    Q query, {
+    P params, {
     HandleLoadingCallback<void>? onLoading,
     HandleSuccessCallback<R, void>? onSuccess,
     HandleErrorCallback<void>? onError,
@@ -306,8 +290,8 @@ final class ReadHandle<Q extends Read<R>, R> extends QueryHandle<Q, R> {
   }) {
     _replaceExecutorWith(
       HandleExecutor.fromFuture(
-        query,
-        _mediator.read(query),
+        params,
+        _handler(params),
         onLoading: onLoading,
         onSuccess: onSuccess,
         onError: onError,
@@ -317,12 +301,14 @@ final class ReadHandle<Q extends Read<R>, R> extends QueryHandle<Q, R> {
   }
 }
 
-final class WatchHandle<Q extends Watch<R>, R> extends QueryHandle<Q, R> {
-  WatchHandle(super.mediator);
+final class StreamHandle<P extends Watch<R>, R> extends Handle<P, R> {
+  StreamHandle(this._handler);
+
+  final Stream<R> Function(P) _handler;
 
   @override
   void execute(
-    Q query, {
+    P params, {
     HandleLoadingCallback<void>? onLoading,
     HandleSuccessCallback<R, void>? onSuccess,
     HandleErrorCallback<void>? onError,
@@ -330,8 +316,8 @@ final class WatchHandle<Q extends Watch<R>, R> extends QueryHandle<Q, R> {
   }) {
     _replaceExecutorWith(
       HandleExecutor.fromStream(
-        query,
-        _mediator.watch(query),
+        params,
+        _handler(params),
         onLoading: onLoading,
         onSuccess: onSuccess,
         onError: onError,
@@ -341,43 +327,4 @@ final class WatchHandle<Q extends Watch<R>, R> extends QueryHandle<Q, R> {
   }
 }
 
-class ReadAndWatchHandle<Q extends ReadAndWatch<R>, R> with Disposable {
-  ReadAndWatchHandle(Mediator mediator)
-      : read = ReadHandle(mediator),
-        watch = WatchHandle(mediator);
-
-  final ReadHandle read;
-  final WatchHandle watch;
-
-  @override
-  void dispose() {
-    read.dispose();
-    watch.dispose();
-    super.dispose();
-  }
-}
-
-final class CommandHandle<C extends Command<R>, R> extends Handle<C, R> {
-  CommandHandle(super.mediator);
-
-  @override
-  void execute(
-    // ignore: avoid_renaming_method_parameters
-    C command, {
-    HandleLoadingCallback<void>? onLoading,
-    HandleSuccessCallback<R, void>? onSuccess,
-    HandleErrorCallback<void>? onError,
-    HandleCancelationCallback<void>? onCancelled,
-  }) {
-    _replaceExecutorWith(
-      HandleExecutor.fromFuture(
-        command,
-        _mediator.run(command),
-        onLoading: onLoading,
-        onSuccess: onSuccess,
-        onError: onError,
-        onCancelled: onCancelled,
-      ),
-    );
-  }
-}
+typedef CommandHandle<C extends Command<R>, R> = FutureHandle<C, R>;

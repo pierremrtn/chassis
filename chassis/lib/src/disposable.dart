@@ -5,7 +5,6 @@ mixin Disposable {
   bool _disposed = false;
 
   @mustCallSuper
-  @mustBeOverridden
   void dispose() {
     _disposed = true;
   }

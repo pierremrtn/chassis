@@ -1,5 +1,3 @@
-import 'package:chassis/src/mediator/handle.dart';
-
 import 'command.dart';
 import 'query.dart';
 
@@ -52,65 +50,5 @@ class Mediator {
           'No CommandHandler registered for ${command.runtimeType}');
     }
     return handler.run(command) as Future<T>;
-  }
-
-  ReadHandle<Q, R> readHandle<Q extends Read<R>, R>({
-    Q? executeImmediately,
-    HandleLoadingCallback<void>? onLoading,
-    HandleSuccessCallback<R, void>? onSuccess,
-    HandleErrorCallback<void>? onError,
-    HandleCancelationCallback<void>? onCancelled,
-  }) {
-    final handle = ReadHandle<Q, R>(this);
-    if (executeImmediately case Q query) {
-      handle.execute(
-        query,
-        onLoading: onLoading,
-        onSuccess: onSuccess,
-        onError: onError,
-        onCancelled: onCancelled,
-      );
-    }
-    return handle;
-  }
-
-  WatchHandle<Q, R> watchHandle<Q extends Watch<R>, R>({
-    Q? executeImmediately,
-    HandleLoadingCallback<void>? onLoading,
-    HandleSuccessCallback<R, void>? onSuccess,
-    HandleErrorCallback<void>? onError,
-    HandleCancelationCallback<void>? onCancelled,
-  }) {
-    final handle = WatchHandle<Q, R>(this);
-    if (executeImmediately case Q query) {
-      handle.execute(
-        query,
-        onLoading: onLoading,
-        onSuccess: onSuccess,
-        onError: onError,
-        onCancelled: onCancelled,
-      );
-    }
-    return handle;
-  }
-
-  CommandHandle<C, R> commandHandle<C extends Command<R>, R>({
-    C? executeImmediately,
-    HandleLoadingCallback<void>? onLoading,
-    HandleSuccessCallback<R, void>? onSuccess,
-    HandleErrorCallback<void>? onError,
-    HandleCancelationCallback<void>? onCancelled,
-  }) {
-    final handle = CommandHandle<C, R>(this);
-    if (executeImmediately case C query) {
-      handle.execute(
-        query,
-        onLoading: onLoading,
-        onSuccess: onSuccess,
-        onError: onError,
-        onCancelled: onCancelled,
-      );
-    }
-    return handle;
   }
 }

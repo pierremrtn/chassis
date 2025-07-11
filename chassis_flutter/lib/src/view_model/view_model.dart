@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:chassis/chassis.dart';
 import 'package:flutter/foundation.dart';
 
+import 'handle.dart';
+
 class ViewModel<T> extends ChangeNotifier with Disposable {
   ViewModel(T initial) : _state = initial;
 
@@ -46,5 +48,73 @@ extension BaseUtils on ViewModel {
     final merge = Listenable.merge(listenables);
     merge.addListener(listener);
     _cleanup.add(() => merge.removeListener(listener));
+  }
+}
+
+extension HandleUtils on ViewModel {
+  FutureHandle<Q, R> readHandle<Q extends Read<R>, R>(
+    ReadHandler<Q, R> handler, {
+    Q? executeImmediately,
+    HandleLoadingCallback<void>? onLoading,
+    HandleSuccessCallback<R, void>? onSuccess,
+    HandleErrorCallback<void>? onError,
+    HandleCancelationCallback<void>? onCancelled,
+  }) {
+    final handle = FutureHandle<Q, R>((query) => handler.read(query));
+    _cleanup.add(handle.dispose);
+    if (executeImmediately case Q query) {
+      handle.execute(
+        query,
+        onLoading: onLoading,
+        onSuccess: onSuccess,
+        onError: onError,
+        onCancelled: onCancelled,
+      );
+    }
+    return handle;
+  }
+
+  StreamHandle<Q, R> watchHandle<Q extends Watch<R>, R>(
+    WatchHandler<Q, R> handler, {
+    Q? executeImmediately,
+    HandleLoadingCallback<void>? onLoading,
+    HandleSuccessCallback<R, void>? onSuccess,
+    HandleErrorCallback<void>? onError,
+    HandleCancelationCallback<void>? onCancelled,
+  }) {
+    final handle = StreamHandle<Q, R>((query) => handler.watch(query));
+    _cleanup.add(handle.dispose);
+    if (executeImmediately case Q query) {
+      handle.execute(
+        query,
+        onLoading: onLoading,
+        onSuccess: onSuccess,
+        onError: onError,
+        onCancelled: onCancelled,
+      );
+    }
+    return handle;
+  }
+
+  CommandHandle<C, R> commandHandle<C extends Command<R>, R>(
+    CommandHandler<C, R> handler, {
+    C? executeImmediately,
+    HandleLoadingCallback<void>? onLoading,
+    HandleSuccessCallback<R, void>? onSuccess,
+    HandleErrorCallback<void>? onError,
+    HandleCancelationCallback<void>? onCancelled,
+  }) {
+    final handle = FutureHandle<C, R>((params) => handler.run(params));
+    _cleanup.add(handle.dispose);
+    if (executeImmediately case C query) {
+      handle.execute(
+        query,
+        onLoading: onLoading,
+        onSuccess: onSuccess,
+        onError: onError,
+        onCancelled: onCancelled,
+      );
+    }
+    return handle;
   }
 }
