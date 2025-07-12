@@ -327,4 +327,6 @@ final class StreamHandle<P extends Watch<R>, R> extends Handle<P, R> {
   }
 }
 
+typedef ReadHandle<Q extends Read<R>, R> = FutureHandle<Q, R>;
+typedef WatchHandle<Q extends Watch<R>, R> = StreamHandle<Q, R>;
 typedef CommandHandle<C extends Command<R>, R> = FutureHandle<C, R>;
