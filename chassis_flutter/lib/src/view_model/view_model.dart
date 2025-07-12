@@ -3,8 +3,6 @@ import 'dart:async';
 import 'package:chassis/chassis.dart';
 import 'package:flutter/foundation.dart';
 
-import 'handle.dart';
-
 class ViewModel<T> extends ChangeNotifier with Disposable {
   ViewModel(T initial) : _state = initial;
 
