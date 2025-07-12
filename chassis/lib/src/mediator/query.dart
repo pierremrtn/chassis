@@ -15,7 +15,10 @@ typedef WatchHandlerCallback<Q extends Watch<R>, R> = Stream<R> Function(
 class QueryHandler<Q extends Query<R>, R> {}
 
 class ReadHandler<Q extends Read<R>, R> implements QueryHandler<Q, R> {
-  const ReadHandler({required ReadHandlerCallback<Q, R> read}) : _read = read;
+  const ReadHandler({required ReadHandlerCallback<Q, R> read})
+      : _read = read,
+        assert(Q is! Watch,
+            "$Q: trying to register a read only handler for a query that supports watch. Try to changes the type of your handler to ReadAndWatchHandler");
 
   final ReadHandlerCallback<Q, R> _read;
 
@@ -27,7 +30,9 @@ class ReadHandler<Q extends Read<R>, R> implements QueryHandler<Q, R> {
 // A type that can handle a streaming query for Q.
 class WatchHandler<Q extends Watch<R>, R> implements QueryHandler<Q, R> {
   const WatchHandler({required WatchHandlerCallback<Q, R> watch})
-      : _watch = watch;
+      : _watch = watch,
+        assert(Q is! Read,
+            "$Q: trying to register a watch only handler for a query that supports read. Try to changes the type of your handler to ReadAndWatchHandler");
 
   final WatchHandlerCallback<Q, R> _watch;
 
