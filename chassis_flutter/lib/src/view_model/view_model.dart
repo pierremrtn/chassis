@@ -132,7 +132,7 @@ extension HandleUtils on ViewModel {
       );
     }
     if (executeImmediately case Q query) {
-      handle.execute(
+      handle.run(
         query,
         onLoading: onLoading,
         onSuccess: onSuccess,
@@ -160,7 +160,7 @@ extension HandleUtils on ViewModel {
       );
     }
     if (executeImmediately case Q query) {
-      handle.execute(
+      handle.watch(
         query,
         onLoading: onLoading,
         onSuccess: onSuccess,
@@ -187,9 +187,9 @@ extension HandleUtils on ViewModel {
         handle.stream.listen(listener),
       );
     }
-    if (executeImmediately case C query) {
-      handle.execute(
-        query,
+    if (executeImmediately case C command) {
+      handle.run(
+        command,
         onLoading: onLoading,
         onSuccess: onSuccess,
         onError: onError,
