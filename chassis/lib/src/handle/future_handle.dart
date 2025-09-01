@@ -59,6 +59,7 @@ final class FutureHandle<P, R> extends Handle<P, R> {
     HandleSuccessCallback<R, void>? onSuccess,
     HandleErrorCallback<void>? onError,
     HandleCancelationCallback<void>? onCancelled,
+    HandleDoneCallback<void>? onDone,
   }) {
     _replaceExecutorWith(
       _FutureHandleExecutor(
@@ -68,6 +69,7 @@ final class FutureHandle<P, R> extends Handle<P, R> {
         onSuccess: onSuccess,
         onError: onError,
         onCancelled: onCancelled,
+        onDone: onDone,
       ),
     );
   }
@@ -88,11 +90,16 @@ final class _FutureHandleExecutor<Q, T> extends _HandleExecutor<Q, T> {
   _FutureHandleExecutor(
     super.params,
     this._future, {
-    super.onLoading,
-    super.onSuccess,
-    super.onError,
+    this.onLoading,
+    this.onSuccess,
+    this.onError,
     super.onCancelled,
+    super.onDone,
   });
+
+  final HandleLoadingCallback<void>? onLoading;
+  final HandleSuccessCallback<T, void>? onSuccess;
+  final HandleErrorCallback<void>? onError;
 
   late final Stream<FutureHandleState<T>> stream =
       _execute().asBroadcastStream();

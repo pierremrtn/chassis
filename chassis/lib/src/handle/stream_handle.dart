@@ -35,7 +35,6 @@ class StreamHandleStateDone<T> extends StreamHandleState<T> {
 }
 
 /// TODO:
-/// - StreamHandleState
 /// - Specialized logic
 final class StreamHandle<P, R> extends Handle<P, R> {
   StreamHandle(this._handler);
@@ -62,23 +61,23 @@ final class StreamHandle<P, R> extends Handle<P, R> {
   }
 
   /// [onLoading], [onSuccess], [onError] can be used to register callback  to track this particular execution status.
-  /// Those callbacks are only valid for this execute call and won't be triggered for any subsequent [watch] call
-  /// if [watch] again is called before this call is done, callbacks **won't** be called and [onCancelled] will be called instead.
-  void watch(
+  /// Those callbacks are only valid for this execute call and won't be triggered for any subsequent [startListening] call
+  /// if [startListening] again is called before this call is done, callbacks **won't** be called and [onCancelled] will be called instead.
+  void startListening(
     P params, {
-    HandleLoadingCallback<void>? onLoading,
-    HandleSuccessCallback<R, void>? onSuccess,
+    HandleSuccessCallback<R, void>? onData,
     HandleErrorCallback<void>? onError,
     HandleCancelationCallback<void>? onCancelled,
+    HandleDoneCallback<void>? onDone,
   }) {
     _replaceExecutorWith(
       _StreamHandleExecutor(
         params,
         _handler(params),
-        onLoading: onLoading,
-        onSuccess: onSuccess,
+        onData: onData,
         onError: onError,
         onCancelled: onCancelled,
+        onDone: onDone,
       ),
     );
   }
@@ -90,22 +89,24 @@ final class _StreamHandleExecutor<Q, T> extends _HandleExecutor<Q, T> {
   _StreamHandleExecutor(
     super.params,
     this._sourceStream, {
-    super.onLoading,
-    super.onSuccess,
-    super.onError,
+    this.onData,
+    this.onError,
+    super.onDone,
     super.onCancelled,
   });
+
+  final HandleSuccessCallback<T, void>? onData;
+  final HandleErrorCallback<void>? onError;
 
   late final Stream<StreamHandleState<T>> stream =
       _execute().asBroadcastStream();
 
   Stream<StreamHandleState<T>> _execute() async* {
     yield StreamHandleStateLoading<T>();
-    _safeCallback(() => onLoading?.call());
     try {
       await for (final data in _sourceStream) {
         yield StreamHandleStateData<T>(data);
-        _safeCallback(() => onSuccess?.call(data));
+        _safeCallback(() => onData?.call(data));
       }
       yield StreamHandleStateDone<T>();
     } catch (e, s) {

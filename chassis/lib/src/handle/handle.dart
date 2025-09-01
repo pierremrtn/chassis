@@ -51,6 +51,7 @@ typedef HandleErrorCallback<U> = U Function(
   StackTrace stackTrace,
 ]);
 typedef HandleCancelationCallback<U> = U Function();
+typedef HandleDoneCallback<U> = U Function();
 
 /// stream of [HandleState].
 abstract base class _HandleExecutor<P, R> with Disposable {
@@ -58,38 +59,39 @@ abstract base class _HandleExecutor<P, R> with Disposable {
   /// if the handle is canceled, they **won't** be called and [onCancelled] instead.
   _HandleExecutor(
     this.params, {
-    this.onLoading,
-    this.onSuccess,
-    this.onError,
+    this.onDone,
     this.onCancelled,
   });
 
   /// The query or command used to create this executor.
   final P params;
 
-  final HandleLoadingCallback<void>? onLoading;
-  final HandleSuccessCallback<R, void>? onSuccess;
-  final HandleErrorCallback<void>? onError;
+  final HandleCancelationCallback<void>? onDone;
   final HandleCancelationCallback<void>? onCancelled;
 
-  bool _canceled = false;
   bool _done = false;
 
   @override
   void dispose() {
-    _canceled = true;
-    if (!_done) onCancelled?.call();
+    final wasDone = _done;
+    _markDone();
+    if (!wasDone) {
+      onCancelled?.call();
+    }
     super.dispose();
   }
 
   /// Mark this executor as done
   /// When the executor is done, onCancelled is not called when the executor is disposed
   void _markDone() {
-    _done = true;
+    if (!_done) {
+      _done = true;
+      onDone?.call();
+    }
   }
 
   void _safeCallback(void Function() callback) {
-    if (!_canceled) {
+    if (!_done) {
       callback.call();
     }
   }
