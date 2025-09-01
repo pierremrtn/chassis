@@ -2,12 +2,17 @@ import 'command.dart';
 import 'query.dart';
 
 class Mediator {
+  static late final Mediator instance;
+  static void initialize(Mediator mediator) {
+    instance = mediator;
+  }
+
   final Map<Type, ReadHandler> _queryHandlers = {};
   final Map<Type, WatchHandler> _streamHandlers = {};
   final Map<Type, CommandHandler> _commandHandlers = {};
   // Dependency injection container or service locator to create handlers
 
-  void registerQuery<Q extends Query<T>, T>(
+  void registerQueryHandler<Q extends Query<T>, T>(
     QueryHandler<Q, T> handler,
   ) {
     if (handler case ReadHandler handler) {
@@ -20,7 +25,7 @@ class Mediator {
     }
   }
 
-  void registerCommand<C extends Command<T>, T>(
+  void registerCommandHandler<C extends Command<T>, T>(
     CommandHandler<C, T> handler,
   ) {
     _commandHandlers[C] = handler;
@@ -50,5 +55,11 @@ class Mediator {
           'No CommandHandler registered for ${command.runtimeType}');
     }
     return handler.run(command) as Future<T>;
+  }
+
+  bool hasHandlerAvailableFor<T>() {
+    final handler =
+        _queryHandlers[T] ?? _streamHandlers[T] ?? _commandHandlers[T];
+    return handler != null;
   }
 }
