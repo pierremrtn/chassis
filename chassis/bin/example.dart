@@ -4,24 +4,30 @@ import 'package:chassis/src/mediator/query.dart';
 class AppSettings {}
 
 // A query that can only be fetched once
-class AppSettingsQuery implements ReadAndWatch<AppSettings> {}
+class ReadAppSettingsQuery implements Read<AppSettings> {}
 
-// A handler that ONLY implements IQueryHandler
-class AppSettingsHandler
-    implements
-        ReadHandler<AppSettingsQuery, AppSettings>,
-        WatchHandler<AppSettingsQuery, AppSettings> {
-  AppSettingsHandler(this.repo);
+class WatchAppSettingsQuery implements Watch<AppSettings> {}
+
+class ReadAppSettingsHandler
+    implements ReadHandler<ReadAppSettingsQuery, AppSettings> {
+  ReadAppSettingsHandler(this.repo);
 
   final ISomeRepo repo;
 
   @override
-  Future<AppSettings> read(AppSettingsQuery query) {
+  Future<AppSettings> read(ReadAppSettingsQuery query) {
     return repo.test();
   }
+}
+
+class WatchAppSettingsQueryHandler
+    implements WatchHandler<WatchAppSettingsQuery, AppSettings> {
+  WatchAppSettingsQueryHandler(this.repo);
+
+  final ISomeRepo repo;
 
   @override
-  Stream<AppSettings> watch(AppSettingsQuery query) {
+  Stream<AppSettings> watch(WatchAppSettingsQuery query) {
     return repo.stream;
   }
 }
@@ -29,13 +35,4 @@ class AppSettingsHandler
 abstract interface class ISomeRepo {
   Future<AppSettings> test();
   Stream<AppSettings> get stream;
-}
-
-class AppSettingsHandler2
-    extends ReadAndWatchHandler<AppSettingsQuery, AppSettings> {
-  AppSettingsHandler2({required ISomeRepo repo})
-      : super(
-          read: (query) => repo.test(),
-          watch: (query) => repo.stream,
-        );
 }

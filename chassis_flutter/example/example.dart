@@ -1,40 +1,89 @@
-import 'package:chassis/chassis.dart';
-import 'package:chassis_flutter/chassis_flutter.dart';
+// import 'dart:io';
 
-// Domain
+// import 'package:chassis/chassis.dart';
+// import 'package:chassis_flutter/chassis_flutter.dart';
 
-abstract class IUserRepo {
-  UserData get user;
-  Stream<UserData> get stream;
-}
+// // Domain
 
-class UserData {}
+// // repo
+// abstract class IUserRepo {
+//   UserData get user;
+//   Stream<UserData> get stream;
+// }
 
-class UserQuery implements ReadAndWatch<UserData> {}
+// // Model
+// class UserData {}
 
-class UserQueryHandler extends ReadAndWatchHandler<UserQuery, UserData> {
-  UserQueryHandler({required IUserRepo repo})
-      : super(
-          read: (query) async => repo.user,
-          watch: (query) => repo.stream,
-        );
-}
 
-// UI
-class MyViewModel extends ViewModel<int> {
-  MyViewModel({
-    required UserQueryHandler userHandler,
-  }) : super(0) {
-    userQuery = readHandle(userHandler);
-  }
+// // Use cases
+// class UserQuery implements ReadAndWatch<UserData> {}
 
-  late final FutureHandle<UserQuery, UserData> userQuery;
-}
+// class UserQueryHandler extends ReadAndWatchHandler<UserQuery, UserData> {
+//   UserQueryHandler({required IUserRepo repo})
+//       : super(
+//           read: (query) async => repo.user,
+//           watch: (query) => repo.stream,
+//         );
+// }
 
-// Widget tree
+// final a = Mediator().read(UserQuery());
 
-final p = Provider(
-  create: (context) => MyViewModel(
-    userHandler: Mediator().handler(),
-  ),
-);
+
+// // UI
+// class MyViewModel extends ViewModel<int> {
+//   MyViewModel({
+//     required UserQueryHandler userHandler,
+//   }) : super(0) {
+
+//     userQuery = readHandle(userHandler);
+//     userStream = watchHandle(userHandler);
+
+//     autoDisposeStreamSubscription(userHandler.watch(UserQuery()).listen((data) {}));
+
+//     readHandle(userHandler);
+
+//     autoDispose(disposable)
+//     autoDisposeStreamSubscription(sub)
+//     listenTo(notifier, () {});
+//     mergeAndListenTo([notifier, notigier], () {});
+//     listenToStreams([userQuery.stream], () {});
+//     listenToHandle(userQuery, (state) {});
+//     listenToHandles([userQuery, userStream], () {});
+
+
+//     listenToHandle(userStream, () {
+//       if (userStream.state case HandleStateSuccess(:final data)) {
+//         print(data);
+//       }
+//     });
+
+//     // NTH
+//     listenToValueNotifier(...);
+//     listen2Handles(a, b, c, (a, b) {});
+//     listen3Handles(a, b, c, (a, b, c) {});
+//   }
+
+//   late final ReadHandle<UserQuery, UserData> userQuery;
+//   late final WatchHandle<UserQuery, UserData> userStream;
+
+
+
+//   void getUser() async {
+//     userQuery.refresh();
+
+//     final res = await read(userHandler);
+//     res.when(
+//       success: (s) => emit(s),
+//       error: (e) => 
+//     );
+//   }
+// }
+
+
+// // Widget tree
+
+// // final p = Provider(
+// //   create: (context) => MyViewModel(
+// //     userHandler: Mediator().handler(),
+// //   ),
+// // );

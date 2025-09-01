@@ -5,25 +5,20 @@ import 'package:test/test.dart';
 
 class AppSettings {}
 
-class AppSettingsQuery implements ReadAndWatch<AppSettings> {}
+class ReadAppSettingsQuery implements Read<AppSettings> {}
+
+class WatchAppSettingsQuery implements Watch<AppSettings> {}
 
 // A handler that ONLY implements IQueryHandler
-class AppSettingsHandler
-    implements
-        ReadHandler<AppSettingsQuery, AppSettings>,
-        WatchHandler<AppSettingsQuery, AppSettings> {
-  AppSettingsHandler(this.repo);
+class ReadAppSettingsQueryHandler
+    implements ReadHandler<ReadAppSettingsQuery, AppSettings> {
+  ReadAppSettingsQueryHandler(this.repo);
 
   final ISomeRepo repo;
 
   @override
-  Future<AppSettings> read(AppSettingsQuery query) {
+  Future<AppSettings> read(ReadAppSettingsQuery query) {
     return repo.test();
-  }
-
-  @override
-  Stream<AppSettings> watch(AppSettingsQuery query) {
-    return repo.stream;
   }
 }
 
@@ -67,11 +62,10 @@ class UserQueryBHandler extends ReadHandler<UserQueryB, String> {
 }
 
 class InlineAppSettingsHandler
-    extends ReadAndWatchHandler<AppSettingsQuery, AppSettings> {
+    extends ReadHandler<ReadAppSettingsQuery, AppSettings> {
   InlineAppSettingsHandler({required ISomeRepo repo})
       : super(
           read: (_) => repo.test(),
-          watch: (_) => repo.stream,
         );
 }
 
@@ -80,19 +74,19 @@ void main() {
     test("Registering handler", () async {
       final repo = MockRepo();
       final mediator = Mediator()
-        ..registerQuery(InlineAppSettingsHandler(repo: repo));
+        ..registerQueryHandler(InlineAppSettingsHandler(repo: repo));
 
-      final AppSettings readtSettings = await mediator.read(AppSettingsQuery());
-      final watchSettings = await mediator.watch(AppSettingsQuery()).first;
+      final AppSettings readtSettings =
+          await mediator.read(ReadAppSettingsQuery());
     });
 
     test("Registering multiple handlers", () async {
       final repo = MockRepo();
       final mediator = Mediator()
-        ..registerQuery(InlineAppSettingsHandler(repo: repo))
-        ..registerQuery(UserQueryAHandler());
+        ..registerQueryHandler(InlineAppSettingsHandler(repo: repo))
+        ..registerQueryHandler(UserQueryAHandler());
 
-      final readtSettings = await mediator.read(AppSettingsQuery());
+      final readtSettings = await mediator.read(ReadAppSettingsQuery());
       final user = await mediator.read(UserQueryA());
 
       expect(user, "Hello A");
@@ -101,11 +95,11 @@ void main() {
     test("Registering multiple handlers with polymorphism", () async {
       final repo = MockRepo();
       final mediator = Mediator()
-        ..registerQuery(InlineAppSettingsHandler(repo: repo))
-        ..registerQuery(UserQueryAHandler())
-        ..registerQuery(UserQueryBHandler());
+        ..registerQueryHandler(InlineAppSettingsHandler(repo: repo))
+        ..registerQueryHandler(UserQueryAHandler())
+        ..registerQueryHandler(UserQueryBHandler());
 
-      final readtSettings = await mediator.read(AppSettingsQuery());
+      final readtSettings = await mediator.read(ReadAppSettingsQuery());
       final usera = await mediator.read(UserQueryA());
       final userb = await mediator.read(UserQueryB());
 
