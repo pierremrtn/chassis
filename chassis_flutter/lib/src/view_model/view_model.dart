@@ -52,6 +52,7 @@ class ViewModel<T, E> extends SafeChangeNotifier {
     Q query,
     void Function(StreamState<R>) onState,
   ) {
+    onState(StreamStateLoading());
     autoDisposeStreamSubscription(
       mediator.watch(query).listen(
             (data) => onState(StreamStateData(data)),
@@ -60,45 +61,53 @@ class ViewModel<T, E> extends SafeChangeNotifier {
     );
   }
 
-  Future<AsyncResult<R>> _runAsyncOperation<P, R>(
+  Future<FutureResult<R>> _runAsyncOperation<P, R>(
     P param,
     Future<R> Function(P params) executor, {
-    void Function(AsyncState<R>)? onState,
+    void Function(FutureState<R>)? onState,
   }) async {
-    onState?.call(AsyncLoading());
+    onState?.call(FutureLoading());
     try {
       final res = await executor(param);
-      final state = AsyncSuccess(res);
+      final state = FutureSuccess(res);
       onState?.call(state);
       return state;
     } catch (e, s) {
-      final res = AsyncError<R>(e, s);
+      final res = FutureError<R>(e, s);
       onState?.call(res);
       return res;
     }
   }
 
   @protected
-  Future<AsyncResult<R>> read<Q extends Read<R>, R>(
+  Future<FutureResult<R>> read<Q extends Read<R>, R>(
     Q query, [
-    void Function(AsyncState<R>)? onState,
+    void Function(FutureState<R>)? onState,
   ]) async {
-    return await _runAsyncOperation(query, mediator.read<R>);
+    return await _runAsyncOperation(
+      query,
+      mediator.read<R>,
+      onState: onState,
+    );
   }
 
   @protected
-  Future<AsyncResult<R>> run<C extends Command<R>, R>(
+  Future<FutureResult<R>> run<C extends Command<R>, R>(
     C command, [
-    void Function(CommandState<R>)? onState,
+    void Function(FutureState<R>)? onState,
   ]) async {
-    return await _runAsyncOperation(command, mediator.run<R>);
+    return await _runAsyncOperation(
+      command,
+      mediator.run<R>,
+      onState: onState,
+    );
   }
 }
 
 extension BaseUtils on ViewModel {
   @protected
   void autoDispose(Disposable disposable) {
-    _cleanups.add(() => disposable.dispose);
+    _cleanups.add(disposable.dispose);
   }
 
   @protected
