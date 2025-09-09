@@ -45,42 +45,21 @@ final class StreamStateError<R> extends StreamState<R> {
   const StreamStateError(this.error, [this.stackTrace]);
 }
 
-// Read
-sealed class AsyncState<R> {}
+sealed class FutureState<R> {}
 
-final class AsyncLoading<R> implements AsyncState<R> {}
+final class FutureLoading<R> implements FutureState<R> {}
 
-sealed class AsyncResult<R> implements AsyncState<R> {}
+sealed class FutureResult<R> implements FutureState<R> {}
 
-final class AsyncSuccess<R> implements AsyncResult<R> {
+final class FutureSuccess<R> implements FutureResult<R> {
   final R data;
 
-  const AsyncSuccess(this.data);
+  const FutureSuccess(this.data);
 }
 
-final class AsyncError<R> implements AsyncResult<R> {
+final class FutureError<R> implements FutureResult<R> {
   final Object error;
   final StackTrace? stackTrace;
 
-  const AsyncError(this.error, [this.stackTrace]);
-}
-
-// Commands
-sealed class CommandState<R> {}
-
-final class CommandStateLoading<R> implements CommandState<R> {}
-
-sealed class CommandResult<R> implements CommandState<R> {}
-
-final class CommandSuccess<R> implements CommandResult<R> {
-  final R data;
-
-  const CommandSuccess(this.data);
-}
-
-final class CommandError<R> implements CommandResult<R> {
-  final Object error;
-  final StackTrace? stackTrace;
-
-  const CommandError(this.error, [this.stackTrace]);
+  const FutureError(this.error, [this.stackTrace]);
 }
