@@ -16,20 +16,37 @@ class Mediator {
     QueryHandler<Q, T> handler,
   ) {
     if (handler case ReadHandler handler) {
+      assert(() {
+        if (_queryHandlers.containsKey(Q)) {
+          throw StateError('ReadHandler already registered for $Q');
+        }
+        return true;
+      }());
       _queryHandlers[Q] = handler;
-      print("Registered ${handler.runtimeType} for GET $Q");
     }
+
     if (handler case WatchHandler handler) {
+      assert(() {
+        if (_streamHandlers.containsKey(Q)) {
+          throw StateError('WatchHandler already registered for $Q');
+        }
+        return true;
+      }());
       _streamHandlers[Q] = handler;
-      print("Registered ${handler.runtimeType} for WATCH $Q");
     }
   }
 
   void registerCommandHandler<C extends Command<T>, T>(
     CommandHandler<C, T> handler,
   ) {
+    assert(() {
+      if (_commandHandlers.containsKey(C)) {
+        throw StateError('CommandHandler already registered for $C');
+      }
+      return true;
+    }());
+
     _commandHandlers[C] = handler;
-    print("Registered ${handler.runtimeType} for COMMAND $C");
   }
 
   Future<T> read<T>(Read<T> query) {
