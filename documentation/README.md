@@ -130,17 +130,6 @@ Chassis is an ideal choice when:
 * **When you prefer a less opinionated solution** and want the flexibility to design your own custom architecture.
 
 
-## Quickstart
-  - Install packages (`chassis`, `chassis_flutter`)
-  - Composition root
-    - Create and configure a `Mediator`
-    - Register handlers
-    - Initialize the singleton via `Mediator.initialize(...)`
-  - First feature in 5 minutes
-    - Define a `Read<T>` query and handler
-    - Provide a `ViewModel` with `ViewModelProvider`
-    - Render state, trigger a command, handle errors
-
 - Core concepts (domain)
   - CQRS in chassis
     - `Query<T>` marker with specializations: `Read<T>` (one‑shot) and `Watch<T>` (streaming)
