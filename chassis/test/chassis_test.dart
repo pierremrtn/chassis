@@ -48,25 +48,17 @@ class UserQueryA implements UserQuery {}
 class UserQueryB implements UserQuery {}
 
 class UserQueryAHandler extends ReadHandler<UserQueryA, String> {
-  UserQueryAHandler()
-      : super(
-          read: (_) async => "Hello A",
-        );
+  UserQueryAHandler() : super((_) async => "Hello A");
 }
 
 class UserQueryBHandler extends ReadHandler<UserQueryB, String> {
-  UserQueryBHandler()
-      : super(
-          read: (_) async => "Hello B",
-        );
+  UserQueryBHandler() : super((_) async => "Hello B");
 }
 
 class InlineAppSettingsHandler
     extends ReadHandler<ReadAppSettingsQuery, AppSettings> {
   InlineAppSettingsHandler({required ISomeRepo repo})
-      : super(
-          read: (_) => repo.test(),
-        );
+      : super((_) => repo.test());
 }
 
 void main() {
