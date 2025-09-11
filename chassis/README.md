@@ -93,7 +93,7 @@ class MyMediator extends Mediator {
 class MyViewModelState {}
 
 class MyViewModel extends ViewModel<MyViewModelState> {
-  MyViewModel() : super(MyViewModelState()) //initial
+  MyViewModel(Mediator mediator) : super(mediator, MyViewModelState()) //initial
   {
     _appSettings = watchHandle();
     _userQuery = watchHandle();
