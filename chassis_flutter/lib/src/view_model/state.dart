@@ -31,48 +31,6 @@
 sealed class StreamState<R> {
   /// {@macro stream_state}
   const StreamState();
-
-  /// Transforms this state using the provided functions.
-  ///
-  /// If this is a [StreamStateLoading], calls [loading].
-  /// If this is a [StreamStateData], calls [data] with the value.
-  /// If this is a [StreamStateError], calls [error] with the error and stack trace.
-  ///
-  /// All functions are required and must return a value of type [U].
-  U when<U>({
-    required U Function() loading,
-    required U Function(R data) data,
-    required U Function(Object error, [StackTrace? stackTrace]) error,
-  }) =>
-      switch (this) {
-        StreamStateLoading<R>() => loading(),
-        StreamStateData<R>(data: final d) => data(d),
-        StreamStateError<R>(error: final e, stackTrace: final s) => error(e, s),
-      };
-
-  /// Transforms this state using the provided optional functions.
-  ///
-  /// If this is a [StreamStateLoading] and [loading] is provided, calls it.
-  /// If this is a [StreamStateData] and [data] is provided, calls it with the value.
-  /// If this is a [StreamStateError] and [error] is provided, calls it with the error.
-  /// Returns `null` if the appropriate function is not provided.
-  U? whenOrNull<U>({
-    U Function()? loading,
-    U Function(R data)? data,
-    U Function(Object error, [StackTrace? stackTrace])? error,
-  }) =>
-      switch (this) {
-        StreamStateLoading<R>() => loading?.call(),
-        StreamStateData<R>(data: final d) => data?.call(d),
-        StreamStateError<R>(error: final e, stackTrace: final s) =>
-          error?.call(e, s),
-      };
-
-  /// Returns the data if this state contains data, otherwise returns `null`.
-  R? dataOrNull() => switch (this) {
-        StreamStateData<R>(data: final d) => d,
-        _ => null,
-      };
 }
 
 /// {@template stream_state_loading}
@@ -194,4 +152,224 @@ final class FutureError<R> implements FutureResult<R> {
 
   /// The stack trace at the time of the error, if available.
   final StackTrace? stackTrace;
+}
+
+/// {@template future_state_utils}
+/// Utility extension for [FutureState] providing convenient methods for
+/// pattern matching and state handling.
+///
+/// This extension provides utilities for working with [FutureState] instances,
+/// including pattern matching operations for handling different states.
+/// {@endtemplate}
+extension FutureStateUtils<R> on FutureState<R> {
+  /// Transforms this state using the provided functions.
+  ///
+  /// If this is a [FutureLoading], calls [loading].
+  /// If this is a [FutureSuccess], calls [data] with the value.
+  /// If this is a [FutureError], calls [error] with the error and stack trace.
+  ///
+  /// All functions are required and must return a value of type [U].
+  ///
+  /// Example:
+  /// ```dart
+  /// final message = state.when(
+  ///   loading: () => 'Loading...',
+  ///   data: (data) => 'Success: $data',
+  ///   error: (error, stackTrace) => 'Failed: $error',
+  /// );
+  /// ```
+  U when<U>({
+    required U Function() loading,
+    required U Function(R data) data,
+    required U Function(Object error, [StackTrace? stackTrace]) error,
+  }) =>
+      switch (this) {
+        FutureLoading<R>() => loading(),
+        FutureSuccess<R>(data: final d) => data(d),
+        FutureError<R>(error: final e, :final stackTrace) =>
+          error(e, stackTrace),
+      };
+}
+
+/// {@template future_result_utils}
+/// Utility extension for [FutureResult] providing convenient methods for
+/// pattern matching and result handling.
+///
+/// This extension provides utilities for working with [FutureResult] instances,
+/// which represent completed future operations that can either succeed or fail.
+/// {@endtemplate}
+extension FutureResultUtils<R> on FutureResult<R> {
+  /// Transforms this result using the provided functions.
+  ///
+  /// If this is a [FutureSuccess], calls [data] with the value.
+  /// If this is a [FutureError], calls [error] with the error and stack trace.
+  ///
+  /// Both functions are required and must return a value of type [U].
+  ///
+  /// Example:
+  /// ```dart
+  /// final message = result.when(
+  ///   data: (data) => 'Success: $data',
+  ///   error: (error, stackTrace) => 'Failed: $error',
+  /// );
+  /// ```
+  U when<U>({
+    required U Function(R data) data,
+    required U Function(Object error, [StackTrace? stackTrace]) error,
+  }) =>
+      switch (this) {
+        FutureSuccess<R>(data: final d) => data(d),
+        FutureError<R>(error: final e, :final stackTrace) =>
+          error(e, stackTrace),
+      };
+}
+
+/// {@template stream_state_utils}
+/// Utility extension for [StreamState] providing convenient methods for
+/// pattern matching, type checking, and data extraction.
+///
+/// This extension provides a comprehensive set of utilities for working with
+/// [StreamState] instances, including functional programming operations,
+/// type checking, and safe data access.
+/// {@endtemplate}
+extension StreamStateUtils<R> on StreamState<R> {
+  /// Transforms this state using the provided functions.
+  ///
+  /// If this is a [StreamStateLoading], calls [loading].
+  /// If this is a [StreamStateData], calls [data] with the value.
+  /// If this is a [StreamStateError], calls [error] with the error and stack trace.
+  ///
+  /// All functions are required and must return a value of type [U].
+  ///
+  /// Example:
+  /// ```dart
+  /// final message = state.when(
+  ///   loading: () => 'Loading...',
+  ///   data: (data) => 'Got: $data',
+  ///   error: (error, stackTrace) => 'Failed: $error',
+  /// );
+  /// ```
+  U when<U>({
+    required U Function() loading,
+    required U Function(R data) data,
+    required U Function(Object error, [StackTrace? stackTrace]) error,
+  }) =>
+      switch (this) {
+        StreamStateLoading<R>() => loading(),
+        StreamStateData<R>(data: final d) => data(d),
+        StreamStateError<R>(error: final e, stackTrace: final s) => error(e, s),
+      };
+
+  /// Transforms this state using the provided optional functions.
+  ///
+  /// If this is a [StreamStateLoading] and [loading] is provided, calls it.
+  /// If this is a [StreamStateData] and [data] is provided, calls it with the value.
+  /// If this is a [StreamStateError] and [error] is provided, calls it with the error.
+  /// Returns `null` if the appropriate function is not provided.
+  ///
+  /// Example:
+  /// ```dart
+  /// final message = state.whenOrNull(
+  ///   data: (data) => 'Got: $data',
+  ///   error: (error) => 'Failed: $error',
+  ///   // loading case will return null
+  /// );
+  /// ```
+  U? whenOrNull<U>({
+    U Function()? loading,
+    U Function(R data)? data,
+    U Function(Object error, [StackTrace? stackTrace])? error,
+  }) =>
+      switch (this) {
+        StreamStateLoading<R>() => loading?.call(),
+        StreamStateData<R>(data: final d) => data?.call(d),
+        StreamStateError<R>(error: final e, stackTrace: final s) =>
+          error?.call(e, s),
+      };
+
+  /// Returns the data if this state contains data, otherwise returns `null`.
+  ///
+  /// This is a safe way to extract data from a [StreamState] without
+  /// having to handle all possible states.
+  ///
+  /// Example:
+  /// ```dart
+  /// final data = state.dataOrNull();
+  /// if (data != null) {
+  ///   print('Data: $data');
+  /// }
+  /// ```
+  R? dataOrNull() => switch (this) {
+        StreamStateData<R>(data: final d) => d,
+        _ => null,
+      };
+
+  /// Returns `true` if this state is a [StreamStateLoading].
+  ///
+  /// Example:
+  /// ```dart
+  /// if (state.isLoading) {
+  ///   showLoadingIndicator();
+  /// }
+  /// ```
+  bool get isLoading => this is StreamStateLoading<R>;
+
+  /// Returns `true` if this state is a [StreamStateData].
+  ///
+  /// Example:
+  /// ```dart
+  /// if (state.isData) {
+  ///   final data = state.dataOrNull()!;
+  ///   displayData(data);
+  /// }
+  /// ```
+  bool get isData => this is StreamStateData<R>;
+
+  /// Returns `true` if this state is a [StreamStateError].
+  ///
+  /// Example:
+  /// ```dart
+  /// if (state.isError) {
+  ///   final error = state.asError!;
+  ///   showErrorMessage(error.error);
+  /// }
+  /// ```
+  bool get isError => this is StreamStateError<R>;
+
+  /// Returns this state cast as [StreamStateData] if it contains data,
+  /// otherwise returns `null`.
+  ///
+  /// This provides safe access to the data state without throwing exceptions.
+  ///
+  /// Example:
+  /// ```dart
+  /// final dataState = state.asData;
+  /// if (dataState != null) {
+  ///   print('Data: ${dataState.data}');
+  /// }
+  /// ```
+  StreamStateData<R>? get asData => switch (this) {
+        StreamStateData<R>() => this as StreamStateData<R>,
+        _ => null,
+      };
+
+  /// Returns this state cast as [StreamStateError] if it contains an error,
+  /// otherwise returns `null`.
+  ///
+  /// This provides safe access to the error state without throwing exceptions.
+  ///
+  /// Example:
+  /// ```dart
+  /// final errorState = state.asError;
+  /// if (errorState != null) {
+  ///   print('Error: ${errorState.error}');
+  ///   if (errorState.stackTrace != null) {
+  ///     print('Stack trace: ${errorState.stackTrace}');
+  ///   }
+  /// }
+  /// ```
+  StreamStateError<R>? get asError => switch (this) {
+        StreamStateError<R>() => this as StreamStateError<R>,
+        _ => null,
+      };
 }
