@@ -1,10 +1,4 @@
-You've made some great points. Clarifying the specific roles and underlying technologies is key to helping users grasp the concepts effectively.
-
-Here is the revised documentation for the `chassis_flutter` package, updated with your feedback.
-
------
-
-## Part 2: The Flutter Layer with `chassis_flutter`
+## The Flutter Layer with `chassis_flutter`
 
 While the `chassis` package provides the core domain logic, `chassis_flutter` connects this logic to the Flutter UI. It provides the necessary tools to implement the **Model-View-ViewModel (MVVM)** pattern, creating a clean and reactive presentation layer.
 
@@ -59,7 +53,7 @@ class GreetingState {
 
 // 2. Use it in a ViewModel
 class GreetingViewModel extends ViewModel<GreetingState, GreetingEvent> {
-  GreetingViewModel() : super(const GreetingState());
+  GreetingViewModel(Mediator mediator) : super(mediator, const GreetingState());
 
   void fetchGreeting() {
     // Update state to show a loading indicator
@@ -111,7 +105,7 @@ Use `ViewModelProvider` to inject your `ViewModel` into the widget tree. This ma
 ```dart
 // In your app's widget tree, before the screen that needs it
 ViewModelProvider(
-  create: (context) => GreetingViewModel(),
+  create: (context) => GreetingViewModel(mediator),
   child: const GreetingScreen(),
 );
 ```
@@ -181,7 +175,7 @@ The `read`, `run`, and `watch` methods on the `ViewModel` provide a callback tha
 
 ```dart
 class GreetingViewModel extends ViewModel<GreetingState, GreetingEvent> {
-  GreetingViewModel() : super(const GreetingState());
+  GreetingViewModel(Mediator mediator) : super(mediator, const GreetingState());
 
   // Example of fetching data with a Read query
   Future<void> fetchGreeting() async {

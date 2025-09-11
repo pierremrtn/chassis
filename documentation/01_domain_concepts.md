@@ -1,9 +1,3 @@
-Excellent feedback. You're right, the documentation needs to better connect the "what" (the code) with the "why" (the architecture) and show how it fits into a complete application.
-
-Here is a revised version of the "Core Principles" section that incorporates your suggestions. It's more grounded, explains the benefits in greater detail, and uses the data flow model as a central theme.
-
------
-
 ## Core Principles: Building Your Domain Layer
 
 At the heart of Chassis lies a clean, decoupled **domain layer**. This layer contains your core business logic and is completely independent of the UI (the **view layer**) or data sources (the **data layer**). It's built around a simple but powerful pattern: modeling every application feature as an explicit message that flows through a predictable, unidirectional path.
