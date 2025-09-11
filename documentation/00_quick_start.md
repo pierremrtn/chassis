@@ -204,8 +204,8 @@ import 'get_greeting_query.dart';
 import 'greeting_state_and_event.dart';
 
 class GreetingViewModel extends ViewModel<GreetingState, GreetingEvent> {
-  // Initialize the ViewModel with the starting state.
-  GreetingViewModel() : super(GreetingState.initial());
+  // Initialize the ViewModel with the mediator and starting state.
+  GreetingViewModel(Mediator mediator) : super(mediator, GreetingState.initial());
 
   Future<void> fetchGreeting() async {
     // 1. Set loading state to show a progress indicator in the UI.
@@ -254,7 +254,7 @@ Finally, use `ViewModelProvider` to make the `ViewModel` available to your widge
         // ViewModelProvider makes the GreetingViewModel available to GreetingScreen
         // and any of its children.
         return ViewModelProvider(
-          create: (_) => GreetingViewModel(),
+          create: (_) => GreetingViewModel(mediator),
           child: const MaterialApp(
             home: GreetingScreen(),
           ),
