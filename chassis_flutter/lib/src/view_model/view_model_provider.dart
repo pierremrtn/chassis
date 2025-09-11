@@ -15,7 +15,7 @@ import 'package:provider/single_child_widget.dart';
 ///
 /// ```dart
 /// ViewModelProvider(
-///   create: (BuildContext context) => UserViewModel(),
+///   create: (BuildContext context) => UserViewModel(mediator),
 ///   child: UserScreen(),
 /// );
 /// ```
@@ -27,7 +27,7 @@ import 'package:provider/single_child_widget.dart';
 /// ```dart
 /// ViewModelProvider(
 ///   lazy: false,
-///   create: (BuildContext context) => UserViewModel(),
+///   create: (BuildContext context) => UserViewModel(mediator),
 ///   child: UserScreen(),
 /// );
 /// ```

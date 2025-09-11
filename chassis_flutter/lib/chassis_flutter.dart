@@ -31,7 +31,7 @@
 ///
 /// // Define a view model
 /// class UserViewModel extends ViewModel<UserState, UserEvent> {
-///   UserViewModel() : super(UserState.initial());
+///   UserViewModel(Mediator mediator) : super(mediator, UserState.initial());
 ///
 ///   void loadUser(String userId) {
 ///     read(GetUserQuery(userId: userId), (state) {
@@ -65,7 +65,7 @@
 ///   @override
 ///   Widget build(BuildContext context) {
 ///     return ViewModelProvider(
-///       create: (context) => UserViewModel(),
+///       create: (context) => UserViewModel(mediator),
 ///       child: Consumer<UserViewModel>(
 ///         builder: (context, viewModel, child) {
 ///           return Text('User: ${viewModel.state.name}');

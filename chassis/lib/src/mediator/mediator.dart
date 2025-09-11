@@ -9,9 +9,8 @@ import 'query.dart';
 ///
 /// Example usage:
 /// ```dart
-/// // Initialize the mediator
+/// // Create the mediator instance
 /// final mediator = Mediator();
-/// Mediator.initialize(mediator);
 ///
 /// // Register handlers
 /// mediator.registerQueryHandler<GetUserQuery, User>(
@@ -27,23 +26,10 @@ import 'query.dart';
 /// );
 ///
 /// // Use the mediator
-/// final user = await Mediator.instance.read(GetUserQuery(userId: '123'));
-/// final newUser = await Mediator.instance.run(CreateUserCommand(name: 'John', email: 'john@example.com'));
+/// final user = await mediator.read(GetUserQuery(userId: '123'));
+/// final newUser = await mediator.run(CreateUserCommand(name: 'John', email: 'john@example.com'));
 /// ```
 class Mediator {
-  /// The global singleton instance of the mediator.
-  ///
-  /// This instance should be initialized using [initialize] before use.
-  static late final Mediator instance;
-
-  /// Initializes the global mediator instance.
-  ///
-  /// This should be called once during application startup to set up the
-  /// global mediator instance that can be accessed via [instance].
-  static void initialize(Mediator mediator) {
-    instance = mediator;
-  }
-
   final Map<Type, ReadHandler> _queryHandlers = {};
   final Map<Type, WatchHandler> _streamHandlers = {};
   final Map<Type, CommandHandler> _commandHandlers = {};

@@ -23,7 +23,7 @@ import 'package:rxdart/streams.dart';
 /// Example usage:
 /// ```dart
 /// class UserViewModel extends ViewModel<UserState, UserEvent> {
-///   UserViewModel() : super(UserState.initial());
+///   UserViewModel(Mediator mediator) : super(mediator, UserState.initial());
 ///
 ///   void loadUser(String userId) {
 ///     read(GetUserQuery(userId: userId), (state) {
@@ -54,10 +54,10 @@ import 'package:rxdart/streams.dart';
 /// {@endtemplate}
 class ViewModel<T, E> extends SafeChangeNotifier {
   /// {@macro view_model}
-  ViewModel(T initial) : _state = initial;
+  ViewModel(this.mediator, T initial) : _state = initial;
 
   /// The chassis mediator instance for handling commands and queries.
-  Mediator get mediator => Mediator.instance;
+  final Mediator mediator;
 
   /// List of cleanup functions to be called when the view model is disposed.
   final List<void Function()> _cleanups = [];

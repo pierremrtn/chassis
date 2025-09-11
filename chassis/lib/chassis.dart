@@ -35,9 +35,8 @@
 ///   final String userId;
 /// }
 ///
-/// // Initialize the mediator
+/// // Create the mediator instance
 /// final mediator = Mediator();
-/// Mediator.initialize(mediator);
 ///
 /// // Register handlers
 /// mediator.registerCommandHandler<CreateUserCommand, User>(
@@ -53,8 +52,8 @@
 /// );
 ///
 /// // Use the mediator
-/// final user = await Mediator.instance.read(GetUserQuery(userId: '123'));
-/// final newUser = await Mediator.instance.run(CreateUserCommand(name: 'John', email: 'john@example.com'));
+/// final user = await mediator.read(GetUserQuery(userId: '123'));
+/// final newUser = await mediator.run(CreateUserCommand(name: 'John', email: 'john@example.com'));
 /// ```
 library;
 
