@@ -204,6 +204,28 @@ class GreetingViewModel extends ViewModel<GreetingState, GreetingEvent> {
       setState(newState);
     });
   }
+
+  // Example of inline read operation using FutureResult utilities
+  Future<void> fetchGreetingInline() async {
+    // The `read` method returns a FutureResult directly
+    setState(state.copyWith(isLoading: true)),
+    final result = await read(const GetGreetingQuery());
+    result.when(
+      data: (data) => setState(state.copyWith(isLoading: false, message: data)),
+      error: (error, stackTrace) => setState(state.copyWith(isLoading: false, error: error.toString())),
+    );
+  }
+
+  // Example of inline run operation using FutureResult utilities
+  Future<void> updateGreetingInline(String newMessage) async {
+    // The `run` method returns a FutureResult directly
+    final result = await run(UpdateGreetingCommand(message: newMessage));
+    
+    result.when(
+      data: (_) => sendEvent(GreetingUpdatedEvent(updatedMessage)),
+      error: (error, stackTrace) => sendEvent(GreetingUpdateFailedEvent(error.toString())),
+    );
+  }
 }
 ```
 
