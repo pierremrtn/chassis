@@ -75,13 +75,13 @@ A pure dart package that provides foundational pieces for building your applicat
 
 * `Mediator`: The central dispatcher that decouples your presentation layer from your business logic handlers. You send a request, and it finds the right handler.
 
-* `Command`, `Read`, `Watch`: Simple, immutable message classes that represent your use cases:
+* `Command`, `ReadQuery`, `WatchQuery`: Simple, immutable message classes that represent your use cases:
 
         Command: An intent to change state (a write operation).
 
         Read: A request for a one-time data fetch (a read operation).
 
-        Watch: A request to subscribe to a continuous stream of data.
+        WatchQuery: A request to subscribe to a continuous stream of data.
 
 * `Handlers`: The corresponding CommandHandler, ReadHandler, and WatchHandler classes where your actual business logic lives.
 
@@ -132,11 +132,11 @@ Chassis is an ideal choice when:
 
 - Core concepts (domain)
   - CQRS in chassis
-    - `Query<T>` marker with specializations: `Read<T>` (one‑shot) and `Watch<T>` (streaming)
+    - `Query<T>` marker with specializations: `ReadQuery<T>` (one‑shot) and `WatchQuery<T>` (streaming)
     - `Command<R>` for state changes
   - Handlers
-    - `ReadHandler<Q extends Read<R>, R>` with `read(Q)`
-    - `WatchHandler<Q extends Watch<R>, R>` with `watch(Q)`
+    - `ReadHandler<Q extends ReadQuery<R>, R>` with `read(Q)`
+    - `WatchHandler<Q extends WatchQuery<R>, R>` with `watch(Q)`
     - `CommandHandler<C extends Command<R>, R>` with `run(C)`
     - Registration and type safety (assertions preventing mismatched query kinds)
   - Mediator
@@ -177,15 +177,15 @@ Chassis is an ideal choice when:
 - Naming conventions and file naming (CQRS)
   - Commands: [Verb][Resource]Command (e.g., `CreateProjectCommand`, `UpdateProjectNameCommand`)
   - Read (one‑shot) queries: Get/Find + [Resource]By[Criteria]Query (e.g., `GetProjectByIdQuery`, `GetAllUsersQuery`)
-  - Watch (stream) queries: Watch + [Resource]By[Criteria]Query (e.g., `WatchOrderStatusQuery`)
+  - WatchQuery (stream) queries: WatchQuery + [Resource]By[Criteria]Query (e.g., `WatchOrderStatusQuery`)
   - Handlers: [FullMessageName]Handler (e.g., `GetProjectByIdQueryHandler`, `CreateProjectCommandHandler`)
   - File names: snake_case of class name (e.g., `get_project_by_id_query.dart`)
 
 - Usage patterns and walkthroughs
   - One‑shot reads
-    - `Read<T>` + `ReadHandler` + `Mediator.read` + UI mapping via `AsyncState`
+    - `ReadQuery<T>` + `ReadHandler` + `Mediator.read` + UI mapping via `AsyncState`
   - Streaming reads
-    - `Watch<T>` + `WatchHandler` + `Mediator.watch` + UI mapping via `StreamState`
+    - `WatchQuery<T>` + `WatchHandler` + `Mediator.watch` + UI mapping via `StreamState`
   - Commands
     - `Command<R>` + `CommandHandler` + `Mediator.run` + UI mapping via `CommandState`
   - Coordinating multiple sources
@@ -219,31 +219,6 @@ Chassis is an ideal choice when:
   - Performance and rebuild minimization with `ViewModelProvider`
   - Threading/async best practices in handlers
 
-- FAQ / Troubleshooting
-  - “No handler registered” errors
-  - Disposed notifier warnings (and how SafeNotifier prevents them)
-  - Debugging mismatched query kinds (assertions in handlers)
-  - Mediator singleton initialization patterns
-
-- Migration guide (optional)
-  - From Bloc/Riverpod to chassis: mapping states/events/commands/queries
-
-- Glossary
-  - MVVM, CQRS, Mediator, Query/Read/Watch, Command, Handler, Result, ViewModel
-
 - Roadmap and contributing
   - Potential renames, typed mediator codegen, logging middleware
   - How to contribute, report issues, coding standards
-
-### Where these sections map to the code
-- Domain: `chassis/lib/src/mediator/{mediator,query,command}.dart`, `result.dart`, `disposable.dart`
-- Flutter: `chassis_flutter/lib/src/view_model/{view_model,state,view_model_provider}.dart`, `consumer_widget/consumer_mixin.dart`, `safe_notifier.dart`
-
-### Suggested ordering for the docs site
-1) Overview → 2) Quickstart → 3) Concepts (Domain) → 4) Flutter Layer → 5) Project Structure → 6) Naming Conventions → 7) Walkthroughs → 8) Error Handling → 9) Testing → 10) Comparison to Bloc → 11) Advanced → 12) FAQ → 13) Roadmap
-
-Status: Completed “Draft documentation outline”; I skipped standalone deliverables for “Propose naming conventions” and “Identify example snippets” because they’re embedded within this plan—happy to expand them next.
-
-- High-level, you now have a complete, ordered documentation plan:
-  - Intro, Quickstart, Concepts, Flutter integration, Structure, Naming standards, Walkthroughs, Error handling, Testing, Comparison, Advanced, FAQ, Roadmap.
-  - Each section maps to concrete APIs present in `chassis` and `chassis_flutter` and covers the goals (onboarding, benefits, rationale, concepts/APIs, standards).

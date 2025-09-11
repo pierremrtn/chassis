@@ -30,7 +30,7 @@ Commands represent an intent to **change the state** of the application. Their n
 
 ## Queries
 
-Queries represent a request to **read data** from the application without modifying its state. Chassis distinguishes between two types of queries: one-time fetches (`Read`) and continuous streams (`Watch`).
+Queries represent a request to **read data** from the application without modifying its state. Chassis distinguishes between two types of queries: one-time fetches (`ReadQuery`) and continuous streams (`WatchQuery`).
 
 ### `Read` Queries (One-Time Fetch)
 
@@ -52,22 +52,22 @@ These queries ask for a snapshot of the system's state at a single point in time
 * `FindCustomerByEmailQuery`
 * `ReadOrderSummaryQuery`
 
-### `Watch` Queries (Continuous Stream)
+### `WatchQuery` Queries (Continuous Stream)
 
 These queries subscribe to a data source and return a `Stream` of updates over time.
 
-#### **Pattern:** `Watch[Resource]By[Criteria]Query`
+#### **Pattern:** `WatchQuery[Resource]By[Criteria]Query`
 
-* **Verb:** **`Watch`** is the standard verb. **`Observe`** is a suitable alternative.
+* **Verb:** **`WatchQuery`** is the standard verb. **`Observe`** is a suitable alternative.
 * **Resource:** The entity or DTO being observed.
 * **Criteria (Optional):** Specifies what is being watched.
 * **Suffix:** Always end the class name with `Query`.
 
 #### **Examples:**
 
-* `WatchProjectByIdQuery`
-* `WatchAllActiveTicketsQuery`
-* `WatchOrderStatusQuery`
+* `WatchQueryProjectByIdQuery`
+* `WatchQueryAllActiveTicketsQuery`
+* `WatchQueryOrderStatusQuery`
 
 ---
 
@@ -86,7 +86,7 @@ To name a handler, simply take the **full class name** of the `Command` or `Quer
 | `CreateProjectCommand` | `CreateProjectCommandHandler` |
 | `UpdateProjectNameCommand` | `UpdateProjectNameCommandHandler` |
 | `ReadProjectByIdQuery` | `ReadProjectByIdQueryHandler` |
-| `WatchAllActiveTicketsQuery` | `WatchAllActiveTicketsQueryHandler` |
+| `WatchQueryAllActiveTicketsQuery` | `WatchQueryAllActiveTicketsQueryHandler` |
 
 ---
 

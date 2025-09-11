@@ -47,15 +47,15 @@ Queries and Commands are the messages that travel from the `ViewModel` to the `M
 
 Chassis offers two types of queries:
 
-  * **`Read<T>`**: For one-time data fetches, returning a `Future<T>`.
-  * **`Watch<T>`**: For subscribing to a stream of data, returning a `Stream<T>`.
+  * **`ReadQuery<T>`**: For one-time data fetches, returning a `Future<T>`.
+  * **`WatchQuery<T>`**: For subscribing to a stream of data, returning a `Stream<T>`.
 
 <!-- end list -->
 
 ```dart
 // A query to fetch a user's profile once.
 // This message travels from the ViewModel to the Mediator.
-class GetUserByIdQuery implements Read<User> {
+class GetUserByIdQuery implements ReadQuery<User> {
   const GetUserByIdQuery(this.userId);
   final String userId;
 }
@@ -158,7 +158,7 @@ class User {
 
 
 // --- 2. Define Queries & Commands (The Messages) ---
-class GetUserByIdQuery implements Read<User> {
+class GetUserByIdQuery implements ReadQuery<User> {
   const GetUserByIdQuery(this.id);
   final String id;
 }

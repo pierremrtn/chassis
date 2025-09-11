@@ -5,9 +5,9 @@ import 'package:test/test.dart';
 
 class AppSettings {}
 
-class ReadAppSettingsQuery implements Read<AppSettings> {}
+final class ReadAppSettingsQuery implements ReadQuery<AppSettings> {}
 
-class WatchAppSettingsQuery implements Watch<AppSettings> {}
+final class WatchAppSettingsQuery implements WatchQuery<AppSettings> {}
 
 // A handler that ONLY implements IQueryHandler
 class ReadAppSettingsQueryHandler
@@ -41,11 +41,11 @@ class MockRepo implements ISomeRepo {
   }
 }
 
-sealed class UserQuery implements Read<String> {}
+sealed class UserQuery implements ReadQuery<String> {}
 
-class UserQueryA implements UserQuery {}
+final class UserQueryA implements UserQuery {}
 
-class UserQueryB implements UserQuery {}
+final class UserQueryB implements UserQuery {}
 
 class UserQueryAHandler extends ReadHandler<UserQueryA, String> {
   UserQueryAHandler() : super((_) async => "Hello A");

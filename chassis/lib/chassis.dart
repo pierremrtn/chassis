@@ -7,7 +7,7 @@
 /// without direct coupling between components. It supports:
 /// - [Command] objects for operations that modify state
 /// - [Read] queries for one-time data retrieval
-/// - [Watch] queries for streaming data that updates over time
+/// - [WatchQuery] queries for streaming data that updates over time
 ///
 /// ## Result Pattern
 /// The [Result] sealed class provides a type-safe way to handle operations that
@@ -30,7 +30,7 @@
 /// }
 ///
 /// // Define a query
-/// class GetUserQuery implements Read<User> {
+/// class GetUserQuery implements ReadQuery<User> {
 ///   const GetUserQuery({required this.userId});
 ///   final String userId;
 /// }

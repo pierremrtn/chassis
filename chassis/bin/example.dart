@@ -4,9 +4,9 @@ import 'package:chassis/src/mediator/query.dart';
 class AppSettings {}
 
 // A query that can only be fetched once
-class ReadAppSettingsQuery implements Read<AppSettings> {}
+final class ReadAppSettingsQuery implements ReadQuery<AppSettings> {}
 
-class WatchAppSettingsQuery implements Watch<AppSettings> {}
+final class WatchAppSettingsQuery implements WatchQuery<AppSettings> {}
 
 class ReadAppSettingsHandler
     implements ReadHandler<ReadAppSettingsQuery, AppSettings> {

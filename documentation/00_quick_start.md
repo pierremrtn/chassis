@@ -6,7 +6,7 @@ This guide provides a brief overview of the `chassis` and `chassis_flutter` pack
 
 Chassis is built around **Queries** and **Commands**. This simple pattern helps you organize your code cleanly.
 
-  * A **Query** is a request to **read data**. Use it when you need to fetch information without changing anything. For example, getting a user's profile or a list of products. There are two types: `Read` for one-off fetches and `Watch` for subscribing to a stream of data.
+  * A **Query** is a request to **read data**. Use it when you need to fetch information without changing anything. For example, getting a user's profile or a list of products. There are two types: `ReadQuery` for one-off fetches and `WatchQuery` for subscribing to a stream of data.
   * A **Command** is a request to **change state**. Use it when you want to create, update, or delete data. For example, submitting a form or adding an item to a cart.
 
 In your app, these requests are typically sent from a `ViewModel` and dispatched to the correct business logic by a central component called the **`Mediator`**. Let's see how it works in practice.
@@ -36,7 +36,7 @@ Think of a `Query` as a structured message that describes the data you want. We'
 import 'package:chassis/chassis.dart';
 
 // This class defines the request: "I want to read data that results in a String."
-class GetGreetingQuery implements Read<String> {
+class GetGreetingQuery implements ReadQuery<String> {
   const GetGreetingQuery();
 }
 ```

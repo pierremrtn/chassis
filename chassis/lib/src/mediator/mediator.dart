@@ -108,7 +108,7 @@ class Mediator {
   /// ```dart
   /// final user = await mediator.read(GetUserQuery(userId: '123'));
   /// ```
-  Future<T> read<T>(Read<T> query) {
+  Future<T> read<T>(ReadQuery<T> query) {
     final handler = _queryHandlers[query.runtimeType];
     if (handler == null) {
       throw Exception('No ReadHandler registered for ${query.runtimeType}');
@@ -126,7 +126,7 @@ class Mediator {
   /// final userStream = mediator.watch(WatchUserQuery(userId: '123'));
   /// userStream.listen((user) => print('User updated: $user'));
   /// ```
-  Stream<T> watch<T>(Watch<T> query) {
+  Stream<T> watch<T>(WatchQuery<T> query) {
     final handler = _streamHandlers[query.runtimeType];
     if (handler == null) {
       throw Exception('No WatchHandler registered for ${query.runtimeType}');

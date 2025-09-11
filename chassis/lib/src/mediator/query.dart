@@ -4,7 +4,7 @@ import 'dart:async';
 ///
 /// Queries represent read operations that retrieve data without modifying state.
 /// They are the foundation for both one-time reads and continuous watching.
-abstract interface class Query<T> {}
+sealed class Query<T> {}
 
 /// Abstract interface for one-time read queries.
 ///
@@ -14,13 +14,13 @@ abstract interface class Query<T> {}
 ///
 /// Example usage:
 /// ```dart
-/// class GetUserQuery implements Read<User> {
+/// class GetUserQuery implements ReadQuery<User> {
 ///   const GetUserQuery({required this.userId});
 ///
 ///   final String userId;
 /// }
 /// ```
-abstract interface class Read<T> implements Query<T> {}
+abstract class ReadQuery<T> implements Query<T> {}
 
 /// Abstract interface for streaming queries that watch for changes.
 ///
@@ -30,25 +30,26 @@ abstract interface class Read<T> implements Query<T> {}
 ///
 /// Example usage:
 /// ```dart
-/// class WatchUserQuery implements Watch<User> {
+/// class WatchUserQuery implements WatchQuery<User> {
 ///   const WatchUserQuery({required this.userId});
 ///
 ///   final String userId;
 /// }
 /// ```
-abstract interface class Watch<T> implements Query<T> {}
+abstract class WatchQuery<T> implements Query<T> {}
 
 /// A callback function that handles one-time read queries.
 ///
 /// This typedef defines the signature for read handler functions that take
 /// a query of type [Q] and return a future with a result of type [R].
-typedef ReadHandlerCallback<Q extends Read<R>, R> = Future<R> Function(Q query);
+typedef ReadHandlerCallback<Q extends ReadQuery<R>, R> = Future<R> Function(
+    Q query);
 
 /// A callback function that handles streaming watch queries.
 ///
 /// This typedef defines the signature for watch handler functions that take
 /// a query of type [Q] and return a stream of results of type [R].
-typedef WatchHandlerCallback<Q extends Watch<R>, R> = Stream<R> Function(
+typedef WatchHandlerCallback<Q extends WatchQuery<R>, R> = Stream<R> Function(
     Q query);
 
 /// Abstract base class for query handlers.
@@ -72,16 +73,16 @@ class QueryHandler<Q extends Query<R>, R> {}
 ///   },
 /// );
 /// ```
-class ReadHandler<Q extends Read<R>, R> implements QueryHandler<Q, R> {
+class ReadHandler<Q extends ReadQuery<R>, R> implements QueryHandler<Q, R> {
   /// Creates a read handler with the given [read] callback.
   ///
-  /// Throws an assertion error if [Q] implements [Watch], as this would
+  /// Throws an assertion error if [Q] implements [WatchQuery], as this would
   /// indicate a type mismatch where a read-only handler is being registered
   /// for a query that supports watching.
   const ReadHandler(ReadHandlerCallback<Q, R> read)
       : _read = read,
-        assert(Q is! Watch,
-            "$Q: trying to register a read only handler for a query that supports watch. Try to changes the type of your handler to ReadAndWatchHandler");
+        assert(Q is! WatchQuery,
+            "$Q: trying to register a read handler for a watch query");
 
   final ReadHandlerCallback<Q, R> _read;
 
@@ -106,16 +107,16 @@ class ReadHandler<Q extends Read<R>, R> implements QueryHandler<Q, R> {
 ///   },
 /// );
 /// ```
-class WatchHandler<Q extends Watch<R>, R> implements QueryHandler<Q, R> {
+class WatchHandler<Q extends WatchQuery<R>, R> implements QueryHandler<Q, R> {
   /// Creates a watch handler with the given [watch] callback.
   ///
-  /// Throws an assertion error if [Q] implements [Read], as this would
+  /// Throws an assertion error if [Q] implements [ReadQuery], as this would
   /// indicate a type mismatch where a watch-only handler is being registered
   /// for a query that supports one-time reads.
   const WatchHandler(WatchHandlerCallback<Q, R> watch)
       : _watch = watch,
-        assert(Q is! Read,
-            "$Q: trying to register a watch only handler for a query that supports read. Try to changes the type of your handler to ReadAndWatchHandler");
+        assert(Q is! ReadQuery,
+            "$Q: trying to register a watch handler for a read query");
 
   final WatchHandlerCallback<Q, R> _watch;
 

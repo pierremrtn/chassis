@@ -112,7 +112,7 @@ class ViewModel<T, E> extends SafeChangeNotifier {
 
   /// Watches a streaming query and calls [onState] with state updates.
   ///
-  /// This method subscribes to a [Watch] query and automatically manages the
+  /// This method subscribes to a [WatchQuery] query and automatically manages the
   /// subscription lifecycle. It will call [onState] with:
   /// - [StreamStateLoading] initially
   /// - [StreamStateData] when data is received
@@ -120,7 +120,7 @@ class ViewModel<T, E> extends SafeChangeNotifier {
   ///
   /// The subscription is automatically disposed when the view model is disposed.
   @protected
-  void watch<Q extends Watch<R>, R>(
+  void watch<Q extends WatchQuery<R>, R>(
     Q query,
     void Function(StreamState<R>) onState,
   ) {
@@ -166,7 +166,7 @@ class ViewModel<T, E> extends SafeChangeNotifier {
   ///
   /// Returns a [FutureResult] that can be used for further processing.
   @protected
-  Future<FutureResult<R>> read<Q extends Read<R>, R>(
+  Future<FutureResult<R>> read<Q extends ReadQuery<R>, R>(
     Q query, [
     void Function(FutureState<R>)? onState,
   ]) async {
