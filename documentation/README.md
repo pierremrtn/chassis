@@ -10,15 +10,13 @@ Think of it like the chassis of a car: it provides a rigid, reliable frame so yo
 
 _**Quick Links:**_
 
-👉 (Quickstart Guide)[url]
+👉 [Quickstart Guide](00_quick_start.md)
 
-👉 (Documentation)[url]
+👉 [API Reference](https://pub.dev/documentation/chassis/latest/)
 
-👉 (API Reference)[url]
+👉 [Submit Issues](https://github.com/pierremrtn/chassis/issues)
 
-👉 (Submit Issues)[url]
-
-👉 (Roadmap)[url]
+👉 [Roadmap](ROADMAP.md)
 
 ### Core Philosophy
 
@@ -71,7 +69,7 @@ ViewModel ⬅️ Data ⬅️ Handler ⬅️ Data Layer
 
 Chassis provides a concise set of tools, neatly divided into core architectural components and Flutter-specific helpers, to streamline your development process.
 
-### **(chassis)[url]:** Core Domain Building Blocks
+### **chassis:** Core Domain Building Blocks
 
 A pure dart package that provides foundational pieces for building your application's business logic, completely independent of the UI.
 
@@ -89,11 +87,11 @@ A pure dart package that provides foundational pieces for building your applicat
 
 * `Disposable`: A standardized interface for managing the lifecycle and cleanup of your services and ViewModels, helping to prevent memory leaks.
 
-### **(chassis_flutter)[url]:** Flutter Integration & Helpers
+### **chassis_flutter:** Flutter Integration & Helpers
 
 A flutter package that provides the MVVM part of chassis. These components seamlessly connect your domain logic to the Flutter widget tree, reducing boilerplate and simplifying state management.
 
-* `ViewModel`: The base class for your presentation logic. It includes convenient methods (e.g., execute, fetch, observe) for easily dispatching Commands and Queries and managing UI state.
+* `ViewModel`: The base class for your presentation logic. It includes convenient methods (e.g., `read`, `watch`, `run`) for easily dispatching Commands and Queries and managing UI state.
 
 * `ViewModelProvider`: A simple and efficient widget for providing your ViewModel instances to the widget tree, making them easily accessible to your UI screens.
 
@@ -124,99 +122,6 @@ Chassis is an ideal choice when:
 * **You want your business logic to be modeled as a set of explicit Use Cases** (`Commands`/`Queries`) that are completely independent of the UI.
 
 ### When BLoC or Riverpod Might Be a Better Fit
+
 * **For smaller projects** where a full architectural framework might be overkill.
 * **When you prefer a less opinionated solution** and want the flexibility to design your own custom architecture.
-
-
-- Core concepts (domain)
-  - CQRS in chassis
-    - `Query<T>` marker with specializations: `ReadQuery<T>` (one‑shot) and `WatchQuery<T>` (streaming)
-    - `Command<R>` for state changes
-  - Handlers
-    - `ReadHandler<Q extends ReadQuery<R>, R>` with `read(Q)`
-    - `WatchHandler<Q extends WatchQuery<R>, R>` with `watch(Q)`
-    - `CommandHandler<C extends Command<R>, R>` with `run(C)`
-    - Registration and type safety (assertions preventing mismatched query kinds)
-  - Mediator
-    - Responsibilities: type‑based routing, single access point
-    - API: `read`, `watch`, `run`, `hasHandlerAvailableFor`
-    - Recommended registration strategy and lifecycle
-  - Result & Disposable
-    - `Result<T>`, `Success<T>`, `Failure<T>` and helpers (`when`, `whenOrNull`, `value`, `error`, `propagate`)
-    - `Disposable` mixin for lifecycle
-
-- Flutter layer (application/presentation)
-  - `ViewModel<TState, TEvent>`
-    - State management: `state`, `setState`
-    - Event stream: `events`, `sendEvent`
-    - Mediator access: `read`, `watch`, `run` helpers
-    - Async primitives: `AsyncState`, `AsyncLoading`, `AsyncSuccess`, `AsyncError`
-    - Stream primitives: `StreamStateLoading`, `StreamStateData`, `StreamStateError`
-    - Command primitives: `CommandStateLoading`, `CommandSuccess`, `CommandError`
-    - Resource management: `autoDispose`, `autoDisposeStreamSubscription`, `listenTo`, `mergeAndListenTo`, `listenToStreams`, `combineStreams(2/3)`
-  - UI integration
-    - `ViewModelProvider` (create/value, lazy, dispose, `of<T>`, usage with `provider`)
-    - `ConsumerMixin` for event handling within `StatefulWidget` (`onEvent`)
-    - `SafeChangeNotifier`/`SafeNotifierMixin` to avoid post‑dispose errors
-
-- Project structure and layering
-  - Recommended folder layout (package or monorepo friendly)
-    - domain/
-      - `models/`, `repositories/`, `use_cases/` (or `handlers/`), `mediator/` (registration)
-      - messages: `queries/`, `commands/`
-    - application/
-      - `view_models/` (one per screen/feature)
-    - presentation/
-      - `screens/`, `widgets/`, `routes/`
-    - infrastructure/
-      - `data_sources/`, `adapters/`, `impl/`
-  - Example tree (aligned with `project_bar`’s `packages/domain` and app package)
-
-- Naming conventions and file naming (CQRS)
-  - Commands: [Verb][Resource]Command (e.g., `CreateProjectCommand`, `UpdateProjectNameCommand`)
-  - Read (one‑shot) queries: Get/Find + [Resource]By[Criteria]Query (e.g., `GetProjectByIdQuery`, `GetAllUsersQuery`)
-  - WatchQuery (stream) queries: WatchQuery + [Resource]By[Criteria]Query (e.g., `WatchOrderStatusQuery`)
-  - Handlers: [FullMessageName]Handler (e.g., `GetProjectByIdQueryHandler`, `CreateProjectCommandHandler`)
-  - File names: snake_case of class name (e.g., `get_project_by_id_query.dart`)
-
-- Usage patterns and walkthroughs
-  - One‑shot reads
-    - `ReadQuery<T>` + `ReadHandler` + `Mediator.read` + UI mapping via `AsyncState`
-  - Streaming reads
-    - `WatchQuery<T>` + `WatchHandler` + `Mediator.watch` + UI mapping via `StreamState`
-  - Commands
-    - `Command<R>` + `CommandHandler` + `Mediator.run` + UI mapping via `CommandState`
-  - Coordinating multiple sources
-    - Combine streams with `combineStreams` and reflect in `state`
-    - Listening to multiple `Listenable`s (`mergeAndListenTo`)
-  - UI side‑effects
-    - `ViewModel` events + `ConsumerMixin.onEvent` (navigation/snackbars/dialogs)
-
-- Error handling strategy
-  - Domain: `Result<T>` vs throwing; mapping failures
-  - ViewModel: `AsyncError`, `StreamStateError`, `CommandError` and stack traces
-  - UI: present errors, retries, empty states
-
-- Testing
-  - Unit testing handlers (pure CQRS)
-  - Testing `Mediator` registration and dispatch
-  - Testing `ViewModel` logic
-    - Stub `Mediator` or register mock handlers
-    - Verifying state transitions and events
-  - Snapshot tests for UI (optional)
-
-- Comparison with Bloc (and rationale)
-  - Similarities: provider‑based DI, `ChangeNotifier` under the hood, `Provider` integration
-  - Differences: explicit CQRS separation, centralized `Mediator`, typed handlers, dual read/watch query kinds
-  - Why the design: clarity, discoverability, replacement of ad‑hoc repositories in UI, fewer implicit contracts
-
-- Advanced topics
-  - DI and modular registration strategies (feature modules)
-  - Typed/Generated mediator shortcuts (roadmap)
-  - Logging/middleware hooks (roadmap)
-  - Performance and rebuild minimization with `ViewModelProvider`
-  - Threading/async best practices in handlers
-
-- Roadmap and contributing
-  - Potential renames, typed mediator codegen, logging middleware
-  - How to contribute, report issues, coding standards

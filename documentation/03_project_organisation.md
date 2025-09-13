@@ -4,7 +4,7 @@ The recommended project structure for Chassis is based on **Clean Architecture**
 
 This separation ensures your business logic remains independent and highly testable, free from any Flutter-specific code.
 
------
+---
 
 ## The `domain` Package (Core Business Logic) 🧠
 
@@ -12,16 +12,16 @@ This is a **pure Dart package** that contains the heart of your application. It 
 
 The recommended structure inside `lib/src/` is:
 
-  * **`models/`**: Contains your core business entities and data structures as plain Dart objects (PODOs).
-      * *Example:* `user.dart`, `project.dart`.
-  * **`use_cases/`**: Holds all your business logic, organized as Chassis messages and handlers. It's helpful to group these by feature or entity.
-      * *Example:* `use_cases/project/create_project_command.dart`
-      * *Example:* `use_cases/project/create_project_command_handler.dart`
-      * *Example:* `use_cases/user/read_user_by_id_query.dart`
-  * **`data/`**: Defines the contracts for your data layer. This folder contains the **abstract classes** (interfaces) for your repositories.
-      * *Example:* `project_repository.dart` would define methods like `Future<Project> getById(String id);`.
+* **`models/`**: Contains your core business entities and data structures as plain Dart objects (PODOs).
+    * *Example:* `user.dart`, `project.dart`.
+* **`use_cases/`**: Holds all your business logic, organized as Chassis messages and handlers. It's helpful to group these by feature or entity.
+    * *Example:* `use_cases/project/create_project_command.dart`
+    * *Example:* `use_cases/project/create_project_command_handler.dart`
+    * *Example:* `use_cases/user/read_user_by_id_query.dart`
+* **`data/`**: Defines the contracts for your data layer. This folder contains the **abstract classes** (interfaces) for your repositories.
+    * *Example:* `project_repository.dart` would define methods like `Future<Project> getById(String id);`.
 
------
+---
 
 ## The `app` Package (Flutter UI & Infrastructure) 📱
 
@@ -29,17 +29,17 @@ This is your main Flutter application package. It depends on the `domain` packag
 
 The recommended structure inside `lib/` is:
 
-  * **`data/`**: Contains the **implementations** of the repository interfaces defined in the `domain` package. This is where you'll have API clients, database connections, and other data source logic.
-      * *Example:* `data/repositories/project_repository_impl.dart` (implements the `ProjectRepository` interface).
-      * *Example:* `data/services/api_client.dart`.
-  * **`ui/`** or **`presentation/`**: This is where all your Flutter code lives. It should be organized **by feature**, not by widget type. This keeps all related UI files together.
-      * A typical feature folder, like `ui/features/project_details/`, contains:
-          * `project_details_screen.dart`: The main widget for the feature's UI.
-          * `project_details_view_model.dart`: The ViewModel that manages the screen's state.
-          * `widgets/`: A sub-folder for any smaller widgets that are specific to this feature.
-      * You might also have a `ui/shared/` folder for widgets, constants, or utilities used across multiple features.
+* **`data/`**: Contains the **implementations** of the repository interfaces defined in the `domain` package. This is where you'll have API clients, database connections, and other data source logic.
+    * *Example:* `data/repositories/project_repository_impl.dart` (implements the `ProjectRepository` interface).
+    * *Example:* `data/services/api_client.dart`.
+* **`ui/`** or **`presentation/`**: This is where all your Flutter code lives. It should be organized **by feature**, not by widget type. This keeps all related UI files together.
+    * A typical feature folder, like `ui/features/project_details/`, contains:
+        * `project_details_screen.dart`: The main widget for the feature's UI.
+        * `project_details_view_model.dart`: The ViewModel that manages the screen's state.
+        * `widgets/`: A sub-folder for any smaller widgets that are specific to this feature.
+    * You might also have a `ui/shared/` folder for widgets, constants, or utilities used across multiple features.
 
------
+---
 
 ## Example Project Tree
 

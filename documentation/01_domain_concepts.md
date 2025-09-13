@@ -1,4 +1,4 @@
-## Core Principles: Building Your Domain Layer
+# Core Principles: Building Your Domain Layer
 
 At the heart of Chassis lies a clean, decoupled **domain layer**. This layer contains your core business logic and is completely independent of the UI (the **view layer**) or data sources (the **data layer**). It's built around a simple but powerful pattern: modeling every application feature as an explicit message that flows through a predictable, unidirectional path.
 
@@ -6,51 +6,49 @@ At the heart of Chassis lies a clean, decoupled **domain layer**. This layer con
 
 Before diving into the code, it's crucial to understand how data moves through the architecture. Every interaction in your app will follow one of two patterns.
 
-#### 1\. The Flow of Action (Commands) 🎬
+## 1. The Flow of Action (Commands) 🎬
 
 When you need to change the application's state (e.g., save user data, submit a form), you use a **Command**. This is a one-way flow designed to perform an action.
 
 **Flow:** `ViewModel` ➡️ `Command` ➡️ `Mediator` ➡️ `Handler` ➡️ `Data Layer`
 
-1.  The **ViewModel** (in the UI layer) creates and sends a `Command` message.
-2.  The central **`Mediator`** receives the `Command` and routes it to the correct `CommandHandler`.
-3.  The **`CommandHandler`** contains the business logic. It executes the request, often by interacting with a repository or an API client in the **Data Layer**.
+1. The **ViewModel** (in the UI layer) creates and sends a `Command` message.
+2. The central **`Mediator`** receives the `Command` and routes it to the correct `CommandHandler`.
+3. The **`CommandHandler`** contains the business logic. It executes the request, often by interacting with a repository or an API client in the **Data Layer**.
 
------
+---
 
-#### 2\. The Flow of Data (Queries) 📊
+## 2. The Flow of Data (Queries) 📊
 
 When you need to display data in the UI, you use a **Query**. This is a read-only operation. The flow goes down to fetch the data and then comes back up with the result.
 
 **Request Flow:** `ViewModel` ➡️ `Query` ➡️ `Mediator` ➡️ `Handler` ➡️ `Data Layer`
 **Data Return Flow:** `ViewModel` ⬅️ `Data` ⬅️ `Handler` ⬅️ `Data Layer`
 
-1.  The **ViewModel** sends a `Query` message describing the data it needs.
-2.  The **`Mediator`** routes it to the appropriate `QueryHandler`.
-3.  The **`QueryHandler`** fetches the data from the **Data Layer**.
-4.  The requested data is returned up the chain to the **ViewModel**, which then prepares it for the UI.
+1. The **ViewModel** sends a `Query` message describing the data it needs.
+2. The **`Mediator`** routes it to the appropriate `QueryHandler`.
+3. The **`QueryHandler`** fetches the data from the **Data Layer**.
+4. The requested data is returned up the chain to the **ViewModel**, which then prepares it for the UI.
 
 This strict separation of concerns is why Chassis makes your business logic:
 
-  * **Explicit and Discoverable**: To understand what your application does, you don't need to read UI code. You can simply look at the `Query` and `Command` files. They form a complete and clear list of all supported features, acting as self-documenting use cases.
-  * **Testable**: A `Handler` is a plain Dart class. It takes a message, performs some logic, and returns a result. You can instantiate it in a unit test, give it a mock data source (like a fake repository), and verify its behavior in complete isolation from Flutter and the UI.
-  * **Maintainable**: Because the data flow is always the same, you always know where to look. Need to fix a bug when creating a user? Find the `CreateUserCommandHandler`. Is user data displaying incorrectly? Check the `GetUserQueryHandler`. This predictability dramatically simplifies debugging and adding new features.
-  * **Observable**: Since every request must pass through the central `Mediator`, it becomes a natural chokepoint for adding cross-cutting concerns. You can easily insert logging, analytics, performance monitoring, or caching middleware in one place without having to modify dozens of individual handlers.
+* **Explicit and Discoverable**: To understand what your application does, you don't need to read UI code. You can simply look at the `Query` and `Command` files. They form a complete and clear list of all supported features, acting as self-documenting use cases.
+* **Testable**: A `Handler` is a plain Dart class. It takes a message, performs some logic, and returns a result. You can instantiate it in a unit test, give it a mock data source (like a fake repository), and verify its behavior in complete isolation from Flutter and the UI.
+* **Maintainable**: Because the data flow is always the same, you always know where to look. Need to fix a bug when creating a user? Find the `CreateUserCommandHandler`. Is user data displaying incorrectly? Check the `GetUserQueryHandler`. This predictability dramatically simplifies debugging and adding new features.
+* **Observable**: Since every request must pass through the central `Mediator`, it becomes a natural chokepoint for adding cross-cutting concerns. You can easily insert logging, analytics, performance monitoring, or caching middleware in one place without having to modify dozens of individual handlers.
 
 Now, let's look at the building blocks that make these flows work.
 
-### 1\. Writing Queries and Commands: The "What"
+## 1. Writing Queries and Commands: The "What"
 
 Queries and Commands are the messages that travel from the `ViewModel` to the `Mediator`. They are simple, immutable classes that describe the intent and carry the necessary data.
 
-#### **Queries: Reading Data**
+### Queries: Reading Data
 
 Chassis offers two types of queries:
 
-  * **`ReadQuery<T>`**: For one-time data fetches, returning a `Future<T>`.
-  * **`WatchQuery<T>`**: For subscribing to a stream of data, returning a `Stream<T>`.
-
-<!-- end list -->
+* **`ReadQuery<T>`**: For one-time data fetches, returning a `Future<T>`.
+* **`WatchQuery<T>`**: For subscribing to a stream of data, returning a `Stream<T>`.
 
 ```dart
 // A query to fetch a user's profile once.
@@ -61,9 +59,9 @@ class GetUserByIdQuery implements ReadQuery<User> {
 }
 ```
 
------
+---
 
-#### **Commands: Changing State**
+### Commands: Changing State
 
 A **`Command<T>`** represents an intent to change state and optionally returns a result of type `T`.
 
@@ -77,13 +75,13 @@ class CreateUserCommand extends Command<User> {
 }
 ```
 
-### 2\. Writing Handlers: The "How"
+## 2. Writing Handlers: The "How"
 
 A **`Handler`** is where your business logic lives. It receives a message from the `Mediator` and performs the work.
 
 There are two common ways to define a handler:
 
-#### **Short Syntax (`extends`)**
+### Short Syntax (`extends`)
 
 For simple logic, you can extend the base handler and pass your logic directly to the `super` constructor. This is concise and great for straightforward cases.
 
@@ -95,9 +93,9 @@ class GetGreetingQueryHandler extends ReadHandler<GetGreetingQuery, String> {
 }
 ```
 
------
+---
 
-#### **Long Syntax (`implements`)**
+### Long Syntax (`implements`)
 
 For more complex handlers with multiple dependencies or steps, implementing the handler interface provides a more structured and readable class. **This is the recommended approach for most cases.**
 
@@ -115,7 +113,7 @@ class GetGreetingQueryHandler implements ReadHandler<GetGreetingQuery, String> {
 }
 ```
 
-### 3\. The `Mediator`: The Central Hub
+## 3. The `Mediator`: The Central Hub
 
 The `Mediator` connects the "what" (the message) to the "how" (the handler). At your application's startup, you create a `Mediator` instance and register all your handlers with it.
 
@@ -133,11 +131,9 @@ mediator.registerCommandHandler(CreateUserCommandHandler(UserRepository()));
 
 From this point on, other parts of your application (like `ViewModels`) can simply send a message to the `Mediator` without ever knowing which handler will process it.
 
-Of course. Here is the final part of the "Core Principles" section, which provides a complete, runnable example to demonstrate how all the pieces work together.
+---
 
------
-
-### 4\. Putting It All Together: A Pure Dart Example
+## 4. Putting It All Together: A Pure Dart Example
 
 This example demonstrates the entire flow within a simple command-line application. It shows how the domain layer operates independently of any UI framework, making it portable and easy to test.
 

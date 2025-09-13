@@ -1,19 +1,19 @@
-## Quickstart
+# Quickstart Guide
 
 This guide provides a brief overview of the `chassis` and `chassis_flutter` packages. You'll learn how to define your business logic using Queries and Commands, connect it to your Flutter UI with a ViewModel, and see how all the pieces fit together.
 
-### The Core Idea: Queries and Commands 🎯
+## The Core Idea: Queries and Commands 🎯
 
 Chassis is built around **Queries** and **Commands**. This simple pattern helps you organize your code cleanly.
 
-  * A **Query** is a request to **read data**. Use it when you need to fetch information without changing anything. For example, getting a user's profile or a list of products. There are two types: `ReadQuery` for one-off fetches and `WatchQuery` for subscribing to a stream of data.
-  * A **Command** is a request to **change state**. Use it when you want to create, update, or delete data. For example, submitting a form or adding an item to a cart.
+* A **Query** is a request to **read data**. Use it when you need to fetch information without changing anything. For example, getting a user's profile or a list of products. There are two types: `ReadQuery` for one-off fetches and `WatchQuery` for subscribing to a stream of data.
+* A **Command** is a request to **change state**. Use it when you want to create, update, or delete data. For example, submitting a form or adding an item to a cart.
 
 In your app, these requests are typically sent from a `ViewModel` and dispatched to the correct business logic by a central component called the **`Mediator`**. Let's see how it works in practice.
 
------
+---
 
-### Step 1: Installation
+## Step 1: Installation
 
 First, add `chassis` and `chassis_flutter` to your `pubspec.yaml` dependencies.
 
@@ -21,13 +21,13 @@ First, add `chassis` and `chassis_flutter` to your `pubspec.yaml` dependencies.
 dart pub add chassis chassis_flutter
 ```
 
------
+---
 
-### Step 2: Define Your Domain Logic
+## Step 2: Define Your Domain Logic
 
 Now, let's build the business logic for a feature that fetches a greeting message. This is the "domain" layer, which should be pure Dart code without any Flutter dependencies.
 
-#### **Create Your First Query**
+### Create Your First Query
 
 Think of a `Query` as a structured message that describes the data you want. We'll create a `GetGreetingQuery` that represents a request for a `String` result.
 
@@ -41,7 +41,7 @@ class GetGreetingQuery implements ReadQuery<String> {
 }
 ```
 
-#### **Implement the Data Fetching (Repository)**
+### Implement the Data Fetching (Repository)
 
 To get the data, our logic will use a **`Repository`**. A repository's job is to abstract the data source—it hides the details of whether the data comes from an API, a database, or a simple text file. We define the repository interface in the domain layer, and keep the implementation details in the application package.
 
@@ -62,7 +62,7 @@ class GreetingRepository implements IGreetingRepository {
 }
 ```
 
-#### **Write the Handler**
+### Write the Handler
 
 Now we need a **`Handler`** to process our `GetGreetingQuery`. The handler is the actual piece of business logic that runs when the query is sent. It uses the repository to fetch the data and return the result.
 
@@ -83,9 +83,9 @@ class GetGreetingQueryHandler extends ReadHandler<GetGreetingQuery, String> {
 }
 ```
 
------
+---
 
-### Step 3: Wire It Up with the Mediator
+## Step 3: Wire It Up with the Mediator
 
 We have our `Query` and our `Handler`, but how does the application know to pair them together? That's the job of the **`Mediator`**.
 
@@ -130,20 +130,18 @@ void registerHandlers(Mediator mediator) {
 }
 ```
 
------
+---
 
-### Step 4: Define the ViewModel and Consume It in Flutter
+## Step 4: Define the ViewModel and Consume It in Flutter
 
 With the business logic and wiring complete, we can now connect it to the Flutter UI. This is where `chassis_flutter` comes in, providing a `ViewModel` to bridge the gap between your domain and your widgets.
 
-#### **Create State and Event Classes**
+### Create State and Event Classes
 
 First, define the data classes that will represent your UI's state and the one-off events you want to send.
 
-  * **State (`GreetingState`)**: A simple class that holds all the data needed to render your screen, such as a loading flag, the greeting message, or an error.
-  * **Event (`GreetingEvent`)**: A sealed class representing temporary, one-time actions, like showing a snackbar or navigating to another screen.
-
-<!-- end list -->
+* **State (`GreetingState`)**: A simple class that holds all the data needed to render your screen, such as a loading flag, the greeting message, or an error.
+* **Event (`GreetingEvent`)**: A sealed class representing temporary, one-time actions, like showing a snackbar or navigating to another screen.
 
 ```dart
 // lib/features/greeting_state_and_event.dart
@@ -183,16 +181,14 @@ class ShowGreetingSuccessSnackbar implements GreetingEvent {
 }
 ```
 
-#### **Create the ViewModel**
+### Create the ViewModel
 
 A **`ViewModel`** is a class that manages the UI's state and communicates with the domain layer through the `Mediator`.
 
-  * It extends `ViewModel<State, Event>`.
-  * It calls `setState()` with a new state object to trigger UI rebuilds.
-  * It calls `sendEvent()` to notify the UI of side effects that shouldn't be part of the state (like showing a dialog).
-  * It uses convenience methods like **`read`**, **`watch`**, and **`run`** to send requests to the `Mediator`.
-
-<!-- end list -->
+* It extends `ViewModel<State, Event>`.
+* It calls `setState()` with a new state object to trigger UI rebuilds.
+* It calls `sendEvent()` to notify the UI of side effects that shouldn't be part of the state (like showing a dialog).
+* It uses convenience methods like **`read`**, **`watch`**, and **`run`** to send requests to the `Mediator`.
 
 ```dart
 // lib/features/greeting_view_model.dart
@@ -228,111 +224,110 @@ class GreetingViewModel extends ViewModel<GreetingState, GreetingEvent> {
 }
 ```
 
-#### **Provide and Build the UI**
+### Provide and Build the UI
 
 Finally, use `ViewModelProvider` to make the `ViewModel` available to your widget tree. Then, use `context.watch` to listen for state changes and the `ConsumerMixin` to handle events.
 
-1.  **Provide the ViewModel**
+#### Provide the ViewModel
 
-    Wrap your `MaterialApp` or a specific screen route with `ViewModelProvider`. This injects your `GreetingViewModel` into the widget tree.
+Wrap your `MaterialApp` or a specific screen route with `ViewModelProvider`. This injects your `GreetingViewModel` into the widget tree.
 
-    ```dart
-    // lib/app.dart
-    import 'package:chassis_flutter/chassis_flutter.dart';
-    import 'package:flutter/material.dart';
-    import 'features/greeting_view_model.dart';
-    import 'features/greeting_screen.dart';
+```dart
+// lib/app.dart
+import 'package:chassis_flutter/chassis_flutter.dart';
+import 'package:flutter/material.dart';
+import 'features/greeting_view_model.dart';
+import 'features/greeting_screen.dart';
 
-    class MyApp extends StatelessWidget {
-      const MyApp({super.key});
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
 
-      @override
-      Widget build(BuildContext context) {
-        // ViewModelProvider makes the GreetingViewModel available to GreetingScreen
-        // and any of its children.
-        return ViewModelProvider(
-          create: (_) => GreetingViewModel(mediator),
-          child: const MaterialApp(
-            home: GreetingScreen(),
-          ),
-        );
+  @override
+  Widget build(BuildContext context) {
+    // ViewModelProvider makes the GreetingViewModel available to GreetingScreen
+    // and any of its children.
+    return ViewModelProvider(
+      create: (_) => GreetingViewModel(mediator),
+      child: const MaterialApp(
+        home: GreetingScreen(),
+      ),
+    );
+  }
+}
+```
+
+#### Build the Screen
+
+Your widget can now listen to the `ViewModel` for state changes and events.
+
+* Use **`context.watch<T>()`** inside your `build` method to get the `ViewModel` instance and automatically rebuild your widget whenever `setState` is called.
+* Use the **`ConsumerMixin`** on your `State` class to easily handle events sent via `sendEvent`.
+* Use **`context.read<T>()`** inside callbacks (like `onPressed`) to get the `ViewModel` without subscribing to changes.
+
+```dart
+// lib/features/greeting_screen.dart
+import 'package:chassis_flutter/chassis_flutter.dart';
+import 'package:flutter/material.dart';
+import 'greeting_view_model.dart';
+import 'greeting_state_and_event.dart';
+
+class GreetingScreen extends StatefulWidget {
+  const GreetingScreen({super.key});
+
+  @override
+  State<GreetingScreen> createState() => _GreetingScreenState();
+}
+
+// Use ConsumerMixin to easily handle events from the ViewModel.
+class _GreetingScreenState extends State<GreetingScreen> with ConsumerMixin<GreetingScreen> {
+  
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Listen for events from the GreetingViewModel.
+    // You can use this mechanism to show modals, trigger navigation, animations, ...
+    onEvent<GreetingViewModel, GreetingEvent>((event) {
+      switch (event) {
+        case ShowGreetingSuccessSnackbar(:final message):
+          ScaffoldMessenger.of(context)
+            ..hideCurrentSnackBar()
+            ..showSnackBar(SnackBar(content: Text(message)));
+          break;
       }
-    }
-    ```
+    });
+  }
 
-2.  **Build the Screen**
+  @override
+  Widget build(BuildContext context) {
+    // Use `watch` to get the ViewModel and rebuild when its state changes.
+    // Chassis uses provider under the hood, so all the standard provider utilities are available
+    final viewModel = context.watch<GreetingViewModel>();
+    final state = viewModel.state;
 
-    Your widget can now listen to the `ViewModel` for state changes and events.
-
-      * Use **`context.watch<T>()`** inside your `build` method to get the `ViewModel` instance and automatically rebuild your widget whenever `setState` is called.
-      * Use the **`ConsumerMixin`** on your `State` class to easily handle events sent via `sendEvent`.
-      * Use **`context.read<T>()`** inside callbacks (like `onPressed`) to get the `ViewModel` without subscribing to changes.
-
-
-    ```dart
-    // lib/features/greeting_screen.dart
-    import 'package:chassis_flutter/chassis_flutter.dart';
-    import 'package:flutter/material.dart';
-    import 'greeting_view_model.dart';
-    import 'greeting_state_and_event.dart';
-
-    class GreetingScreen extends StatefulWidget {
-      const GreetingScreen({super.key});
-
-      @override
-      State<GreetingScreen> createState() => _GreetingScreenState();
-    }
-
-    // Use ConsumerMixin to easily handle events from the ViewModel.
-    class _GreetingScreenState extends State<GreetingScreen> with ConsumerMixin<GreetingScreen> {
-      
-      @override
-      void didChangeDependencies() {
-        super.didChangeDependencies();
-        // Listen for events from the GreetingViewModel.
-        // You can use this mechanism to show modals, trigger navigation, animations, ...
-        onEvent<GreetingViewModel, GreetingEvent>((event) {
-          switch (event) {
-            case ShowGreetingSuccessSnackbar(:final message):
-              ScaffoldMessenger.of(context)
-                ..hideCurrentSnackBar()
-                ..showSnackBar(SnackBar(content: Text(message)));
-              break;
-          }
-        });
-      }
-
-      @override
-      Widget build(BuildContext context) {
-        // Use `watch` to get the ViewModel and rebuild when its state changes.
-        // Chassis uses provider under the hood, so all the standard provider utilities are available
-        final viewModel = context.watch<GreetingViewModel>();
-        final state = viewModel.state;
-
-        return Scaffold(
-          appBar: AppBar(title: const Text('Chassis Quickstart')),
-          body: Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                if (state.isLoading)
-                  const CircularProgressIndicator()
-                else if (state.error != null)
-                  Text('Error: ${state.error}', style: const TextStyle(color: Colors.red))
-                else
-                  Text(state.message, style: Theme.of(context).textTheme.headlineMedium),
-                const SizedBox(height: 20),
-                ElevatedButton(
-                  // Use `read` in callbacks to trigger actions.
-                  onPressed: () => context.read<GreetingViewModel>().fetchGreeting(),
-                  child: const Text('Get Greeting'),
-                ),
-              ],
+    return Scaffold(
+      appBar: AppBar(title: const Text('Chassis Quickstart')),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (state.isLoading)
+              const CircularProgressIndicator()
+            else if (state.error != null)
+              Text('Error: ${state.error}', style: const TextStyle(color: Colors.red))
+            else
+              Text(state.message, style: Theme.of(context).textTheme.headlineMedium),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              // Use `read` in callbacks to trigger actions.
+              onPressed: () => context.read<GreetingViewModel>().fetchGreeting(),
+              child: const Text('Get Greeting'),
             ),
-          ),
-        );
-      }
-    }
-    ```
+          ],
+        ),
+      ),
+    );
+  }
+}
+```
 
-And that's it\! You've now seen the full end-to-end flow: defining domain logic with a **Query** and **Handler**, wiring them up with the **Mediator**, and consuming the logic in a Flutter UI via a **ViewModel**. This separation keeps your business logic clean, testable, and independent of your UI framework. 🚀
+And that's it! You've now seen the full end-to-end flow: defining domain logic with a **Query** and **Handler**, wiring them up with the **Mediator**, and consuming the logic in a Flutter UI via a **ViewModel**. This separation keeps your business logic clean, testable, and independent of your UI framework. 🚀
