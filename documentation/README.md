@@ -1,16 +1,23 @@
 # Chassis
 
+**Rigid in the structure, Flexible in the implementation.**
+
 ## Overview
 
 Chassis is an opinionated architectural framework for Flutter that provides a solid foundation for professional, scalable, and maintainable applications. It guides your project's structure by combining the clarity of MVVM with a pragmatic, front-end friendly implementation of CQRS principles.
 
 Think of it like the chassis of a car: it provides a rigid, reliable frame so you can focus on building the features that make your application unique. 🏎️
 
-_Quick Links:_
+_**Quick Links:**_
+
 👉 (Quickstart Guide)[url]
+
 👉 (Documentation)[url]
+
 👉 (API Reference)[url]
+
 👉 (Submit Issues)[url]
+
 👉 (Roadmap)[url]
 
 ### Core Philosophy
@@ -40,11 +47,9 @@ When you need to change the state of your application (e.g., save user data, sub
 Flow:
 ViewModel ➡️ Command ➡️ Mediator ➡️ Handler ➡️ Data Layer (e.g., Repository)
 
-    The ViewModel creates and dispatches a Command containing all necessary data.
-
-    The Mediator routes the command to its specific CommandHandler.
-
-    The Handler contains the business logic, validating the command and interacting with the Data Layer (like a Repository or an API client) to persist the changes.
+1. The ViewModel creates and dispatches a Command containing all necessary data.
+2. The Mediator routes the command to its specific CommandHandler.
+3. The Handler contains the business logic, validating the command and interacting with the Data Layer (like a Repository or an API client) to persist the changes.
 
 #### 2. The Flow of Data (Queries) 📊
 
@@ -56,13 +61,10 @@ ViewModel ➡️ Query ➡️ Mediator ➡️ Handler ➡️ Data Layer
 Data Return Flow:
 ViewModel ⬅️ Data ⬅️ Handler ⬅️ Data Layer
 
-    The ViewModel dispatches a Query describing the data it needs.
-
-    The Mediator routes it to the appropriate QueryHandler.
-
-    The Handler fetches the data from the Data Layer.
-
-    The requested data is then returned back up the chain to the ViewModel, which prepares it for the UI to display.
+1. The ViewModel dispatches a Query describing the data it needs.
+2. The Mediator routes it to the appropriate QueryHandler.
+3. The Handler fetches the data from the Data Layer.
+4. The requested data is then returned back up the chain to the ViewModel, which prepares it for the UI to display.
 
   
 ### What's in the Box? 🎁
@@ -97,17 +99,13 @@ A flutter package that provides the MVVM part of chassis. These components seaml
 
 * `ConsumerMixin`: A mixin for your StatefulWidgets that simplifies the process of listening to ViewModel changes and automatically rebuilding your UI when the state updates.
 
-Excellent idea. A comparison section is crucial for helping developers understand your framework's positioning and value. It's important to be respectful of other solutions while clearly highlighting what makes yours different.
-
-Here is a draft for that final section.
-
 ## Chassis vs. Existing Solutions (BLoC, Riverpod)
 
 Flutter has a vibrant ecosystem with excellent state management libraries like BLoC and Riverpod. Chassis is not intended to be a "better" state management tool, but rather a more **opinionated architectural framework** that solves a slightly different set of problems.
 
 The key difference lies in the level of architectural guidance and the enforcement of strict decoupling.
 
-### ### Key Differentiators
+### Key Differentiators
 
 | Aspect | BLoC / Riverpod | Chassis |
 | :--- | :--- | :--- |

@@ -77,7 +77,7 @@ class GetGreetingQueryHandler extends ReadHandler<GetGreetingQuery, String> {
     required IGreetingRepository repository,
   }) : super((query) async {
       // The handler contains the core logic.
-      // In more complexes scenarios you may want to fetch multiple repositories, transform data, perform some check, etc
+      // In more complex scenarios you may want to fetch multiple repositories, transform data, perform some check, etc
       return await repository.getGreeting();
     });
 }
@@ -129,9 +129,6 @@ void registerHandlers(Mediator mediator) {
   // Register other handlers here...
 }
 ```
-
------
-Of course\! Here is the completed final section for your quickstart guide.
 
 -----
 
@@ -271,7 +268,6 @@ Finally, use `ViewModelProvider` to make the `ViewModel` available to your widge
       * Use the **`ConsumerMixin`** on your `State` class to easily handle events sent via `sendEvent`.
       * Use **`context.read<T>()`** inside callbacks (like `onPressed`) to get the `ViewModel` without subscribing to changes.
 
-    <!-- end list -->
 
     ```dart
     // lib/features/greeting_screen.dart
