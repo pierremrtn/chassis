@@ -68,18 +68,18 @@ ViewModel ⬅️ Data ⬅️ Handler ⬅️ Data Layer
 
 This entire architecture is built on the interplay between three key components: the ViewModel, the Mediator, and the Handler.
 
-    The ViewModel is the Initiator. It lives in the presentation layer and translates user interactions into Command and Query messages. It knows what action needs to happen, but not how or where it will be executed.
+* The ViewModel is the Initiator. It lives in the presentation layer and translates user interactions into Command and Query messages. It knows what action needs to happen, but not how or where it will be executed.
 
-    The Mediator is the Router. It receives a message from the ViewModel and, based on its type, finds the single, specific Handler registered to process it. This completely decouples the UI from the business logic.
+* The Mediator is the Router. It receives a message from the ViewModel and, based on its type, finds the single, specific Handler registered to process it. This completely decouples the UI from the business logic.
 
-    The Handler is the Executor. This is where your actual business logic lives. Each Handler is a focused class responsible for a single task: it validates the request, performs the necessary operations, and calls any required external services (like a repository or an API client).
+* The Handler is the Executor. This is where your actual business logic lives. Each Handler is a focused class responsible for a single task: it validates the request, performs the necessary operations, and calls any required external services (like a repository or an API client).
 
 This three-part structure—Initiator (ViewModel), Router (Mediator), and Executor (Handler)—ensures a clean, predictable, and highly testable flow for every feature in your application.
 
 
-### What's in the Box? 🎁
+## What's in the Box? 🎁
 
-Chassis provides a concise set of tools, neatly divided into core architectural components and Flutter-specific helpers, to streamline your development process.
+Chassis provides a concise set of tools, divided into core architectural components and Flutter-specific helpers, to streamline your development process.
 
 ### **chassis:** Core Domain Building Blocks
 
@@ -88,16 +88,11 @@ A pure dart package that provides foundational pieces for building your applicat
 * `Mediator`: The central dispatcher that decouples your presentation layer from your business logic handlers. You send a request, and it finds the right handler.
 
 * `Command`, `ReadQuery`, `WatchQuery`: Simple, immutable message classes that represent your use cases:
-
-        Command: An intent to change state (a write operation).
-
-        Read: A request for a one-time data fetch (a read operation).
-
-        WatchQuery: A request to subscribe to a continuous stream of data.
+- Command: An intent to change state (a write operation).
+- ReadQuery: A request for a one-time data fetch (a read operation).
+- WatchQuery: A request to subscribe to a continuous stream of data.
 
 * `Handlers`: The corresponding CommandHandler, ReadHandler, and WatchHandler classes where your actual business logic lives.
-
-* `Disposable`: A standardized interface for managing the lifecycle and cleanup of your services and ViewModels, helping to prevent memory leaks.
 
 ### **chassis_flutter:** Flutter Integration & Helpers
 
@@ -109,13 +104,9 @@ A flutter package that provides the MVVM part of chassis. These components seaml
 
 * `ConsumerMixin`: A mixin for your StatefulWidgets that simplifies the process of listening to ViewModel changes and automatically rebuilding your UI when the state updates.
 
-Of course. Here is a rewritten comparison section for the README that is more argued, realistic, and technically focused. It avoids the "salesy" tone and instead presents a balanced view of the trade-offs, aiming to help a developer make an informed architectural decision.
-
-***
-
 ## Architectural Philosophy: Chassis vs. State Management Libraries
 
-Flutter's ecosystem includes mature, powerful libraries like BLoC and Riverpod. Chassis is not a replacement for these; it operates at a different level of abstraction and aims to solve a different set of architectural challenges.
+Flutter's ecosystem includes mature, powerful state management libraries like BLoC and Riverpod. Chassis is not a replacement for these; it operates at a different level of abstraction and aims to solve a different set of architectural challenges.
 
 The fundamental difference is one of **scope**. BLoC and Riverpod are primarily **tools for state management and dependency injection**. Chassis is an **opinionated framework for application architecture** that uses state management as one of its components.
 
