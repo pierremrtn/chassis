@@ -1,7 +1,8 @@
 name: chassis
-description: A sample command-line application.
-version: 1.0.0
-# repository: https://github.com/my_org/my_repo
+description: An architectural framework for flutter applications
+version: 0.0.1
+repository: https://github.com/pierremrtn/chassis
+homepage: https://affordant.gitbook.io/chassis/
 
 environment:
   sdk: ^3.6.2
@@ -9,7 +10,7 @@ environment:
 # Add regular dependencies here.
 dependencies:
   rxdart: ^0.28.0
-  meta: ^1.17.0
+  meta: ^1.16.0
   # path: ^1.8.0
 
 dev_dependencies:
