@@ -1,34 +1,35 @@
-# chassis_flutter
+# chassis_flutter 🏎️
 
-**Rigid in the structure, Flexible in the implementation.**
+> **Rigid in Structure, Flexible in Implementation.**
 
-Widgets and helpers that make it easy to integrate the `chassis` architecture into Flutter. It provides the necessary tools to create a clean, reactive, and highly testable presentation layer.
+This package provides Flutter widgets and helpers to integrate the core [`chassis`](https://pub.dev/packages/chassis) architecture. It connects your business logic to the UI using the `provider` package, giving you the necessary tools to create a clean, reactive, and highly testable presentation layer following the **MVVM** pattern.
 
-Learn more from the full **[documentation](https://affordant.gitbook.io/chassis/)**.
+Learn more from the full [documentation](https://affordant.gitbook.io/chassis/).
 
-This package is built to work with:
+-----
 
-  * [`chassis`](https://pub.dev/packages/chassis)
-  * [`provider`](https://pub.dev/packages/provider)
+## Core Components
 
-## Overview
+`chassis_flutter` provides a few key components to bridge the gap between your domain logic ([`chassis`](https://pub.dev/packages/chassis_flutter)) and your user interface (Flutter).
 
-While the `chassis` package provides the core domain logic, `chassis_flutter` provides the MVVM components to connect that logic to the user interface.
+* `ViewModel`: The bridge between your UI and your domain. It holds UI state, processes user input by sending messages to the `Mediator`, and exposes results for the View to display.
+* `ViewModelProvider`: A simple widget, built on top of `provider`, for injecting your `ViewModel` into the widget tree and making it accessible to your screens.
+* `ConsumerMixin`: A mixin for `StatefulWidget`s to easily listen for one-time events (like showing a dialog or navigating) from the `ViewModel` without triggering a rebuild.
 
-  * **`ViewModel`**: The bridge between your UI and your domain. It holds UI state, processes user input by sending messages to the `Mediator`, and exposes results for the View to display.
-  * **`ViewModelProvider`**: A simple widget, built on top of `provider`, for injecting your `ViewModel` into the widget tree.
-  * **`ConsumerMixin`**: A mixin for `StatefulWidget`s to easily listen for one-time events from the `ViewModel`, perfect for showing dialogs or navigating.
+-----
 
-## Usage
+## Getting Started
 
-Let's look at how to use `ViewModelProvider` to provide a `GreetingViewModel` to a screen and react to state changes.
+This guide demonstrates how to build a simple feature that fetches a greeting.
 
-#### 1\. Define State & Events
+### 1\. Define UI State & Events
 
-First, define immutable classes for your UI's **State** (the data to render) and **Events** (one-time side effects like showing a snackbar).
+First, create immutable classes for your UI's **State** (the data to render) and **Events** (one-time side effects like showing a snackbar).
+
+💡 **Why Events?** Unlike state, events don't represent what the UI *is*, but rather what it *should do*. They are sent from the `ViewModel` to the `View` to trigger actions like navigation or alerts without cluttering the UI state.
 
 ```dart
-// lib/features/greeting_view_model.dart
+// lib/features/greeting/greeting_view_model.dart
 class GreetingState {
   const GreetingState({this.isLoading = false, this.message = ''});
   final bool isLoading;
@@ -50,18 +51,18 @@ class ShowGreetingSuccess implements GreetingEvent {
 }
 ```
 
-#### 2\. Create the ViewModel
+### 2\. Create the ViewModel
 
-The `ViewModel` manages the state and uses helper methods like `read`, `watch`, and `run` to communicate with the `Mediator`.
+The `ViewModel` connects to the `Mediator` to fetch data and manages the `GreetingState`. It exposes methods for the UI to call, like `fetchGreeting()`.
 
 ```dart
-// lib/features/greeting_view_model.dart
+// lib/features/greeting/greeting_view_model.dart
 class GreetingViewModel extends ViewModel<GreetingState, GreetingEvent> {
   GreetingViewModel(Mediator mediator) : super(mediator, const GreetingState());
 
   Future<void> fetchGreeting() async {
     setState(state.copyWith(isLoading: true));
-    final result = await read(const GetGreetingQuery());
+    final result = await read(const GetGreetingQuery()); // From 'chassis' core
 
     result.when(
       success: (greeting) {
@@ -69,7 +70,6 @@ class GreetingViewModel extends ViewModel<GreetingState, GreetingEvent> {
         sendEvent(ShowGreetingSuccess('Greeting loaded successfully!'));
       },
       failure: (error) {
-        // You would typically update the state with an error message
         setState(state.copyWith(isLoading: false, error: error.toString()));
       },
     );
@@ -77,24 +77,36 @@ class GreetingViewModel extends ViewModel<GreetingState, GreetingEvent> {
 }
 ```
 
-#### 3\. Provide and Consume in Flutter
+### 3\. Provide the ViewModel
 
-Use `ViewModelProvider` to make the `ViewModel` available to your UI. Then, use `context.watch` to listen for state changes and `ConsumerMixin` to handle events.
+Use `ViewModelProvider` (usually above your `MaterialApp` or at the screen level) to make the `ViewModel` available to the widget tree.
 
 ```dart
 // lib/app.dart
 class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    // ViewModelProvider makes the GreetingViewModel available to GreetingScreen
+    // This makes the GreetingViewModel available to GreetingScreen and its children.
     return ViewModelProvider(
-      create: (_) => GreetingViewModel(mediator), // assumes 'mediator' is accessible
+      create: (_) => GreetingViewModel(mediator), // Assumes 'mediator' is accessible
       child: const MaterialApp(home: GreetingScreen()),
     );
   }
 }
+```
 
-// lib/features/greeting_screen.dart
+### 4\. Consume State & Events in the View
+
+Finally, connect your UI to the `ViewModel`.
+
+  * Use `context.watch<T>()` in the `build` method to listen for state changes and rebuild the UI.
+  * Use `context.read<T>()` in callbacks (like `onPressed`) to call methods on the `ViewModel` without rebuilding.
+  * Use the `ConsumerMixin` to handle one-time events.
+
+<!-- end list -->
+
+```dart
+// lib/features/greeting/greeting_screen.dart
 class _GreetingScreenState extends State<GreetingScreen> with ConsumerMixin {
   @override
   void didChangeDependencies() {
@@ -111,7 +123,7 @@ class _GreetingScreenState extends State<GreetingScreen> with ConsumerMixin {
 
   @override
   Widget build(BuildContext context) {
-    // Use `watch` to get the ViewModel and rebuild when state changes
+    // `watch` gets the ViewModel and rebuilds the widget when the state changes.
     final viewModel = context.watch<GreetingViewModel>();
     final state = viewModel.state;
 
@@ -123,7 +135,7 @@ class _GreetingScreenState extends State<GreetingScreen> with ConsumerMixin {
             : Text(state.message, style: Theme.of(context).textTheme.headlineMedium),
       ),
       floatingActionButton: FloatingActionButton(
-        // Use `read` in callbacks to trigger actions without subscribing to changes
+        // `read` calls a method without subscribing to state changes.
         onPressed: () => context.read<GreetingViewModel>().fetchGreeting(),
         child: const Icon(Icons.refresh),
       ),
@@ -131,3 +143,19 @@ class _GreetingScreenState extends State<GreetingScreen> with ConsumerMixin {
   }
 }
 ```
+
+-----
+
+## The Full Picture
+
+The `chassis` and `chassis_flutter` packages work together to create a clean separation of concerns:
+
+1. **View** (`GreetingScreen`) calls `fetchGreeting()` on the `ViewModel`.
+2. **ViewModel** dispatches a `GetGreetingQuery` to the `Mediator`.
+3. **Mediator** finds the corresponding `GetGreetingQueryHandler` in your core `chassis` layer.
+4. **Handler** executes the business logic and returns the result.
+5. **ViewModel** receives the result, updates its `GreetingState`, and the **View** automatically rebuilds to show the new message.
+
+## Next Steps
+
+For more advanced concepts, tutorials, and best practices, please see the full **[documentation](https://affordant.gitbook.io/chassis/)**.
