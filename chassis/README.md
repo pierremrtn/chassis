@@ -1,53 +1,68 @@
-# chassis
+# Chassis 🏎️
 
-**Rigid in the structure, Flexible in the implementation.**
+An opinionated architectural framework for Flutter that provides a solid foundation for professional, scalable, and maintainable applications.
 
-An opinionated architectural framework for Flutter that provides a solid foundation for professional, scalable, and maintainable applications. It guides your project's structure by combining the clarity of MVVM with a pragmatic, front-end friendly implementation of CQRS principles.
+#### Rigid in Structure, Flexible in Implementation.
 
-Learn more from the full **[documentation](https://affordant.gitbook.io/chassis/)**.
+Chassis guides your project's structure by combining the clarity of MVVM with a pragmatic, front-end friendly implementation of CQRS principles. It's designed to make best practices the easiest path forward.
 
-This package is built to work with:
+Learn more from the full [documentation](https://affordant.gitbook.io/chassis/).
 
-  * [`chassis_flutter`](https://pub.dev/packages/chassis_flutter)
-  * [`provider`](https://pub.dev/packages/provider)
+-----
 
-## Overview
+## Why Use Chassis?
 
-Chassis is designed to make best practices the easiest path forward. It enforces a clear separation of concerns, ensuring your business logic is explicit, discoverable, and highly testable.
+  * 🏛️ **Structure by Design**: Don't rely on developer discipline to maintain a clean codebase. Chassis enforces a clean data flow, making the code intuitive and organized by default.
+  * 🧠 **Explicit Logic**: By separating Commands and Queries, your business logic becomes explicit, discoverable, and easier to reason about.
+  * ✅ **Testability First**: Every layer is decoupled and designed to be easily testable in isolation, from business logic handlers to your data layer.
+  * 🔌 **Observable & Pluggable**: Easily plug-in middleware to observe every Command and Query in your application for logging, analytics, or debugging.
 
-  * **Structure by Design:** Do not rely on developer discipline to maintain a clean codebase. Chassis enforces a clean data flow, making the code intuitive and organized by default.
-  * **Rigid Structure, Flexible Logic:** The overall architecture is predictable, but unopinionated about your business logic.
-  * **Testability First:** Every layer is decoupled and designed to be easily testable in isolation.
-  * **Observable:** You can easily plug-in middleware to observe changes in your application.
+-----
 
-Chassis is built around two fundamental concepts: **Commands** for changing state and **Queries** for reading data. These messages are dispatched through a central `Mediator`, which decouples the sender from the handler.
+## The Chassis Ecosystem
 
-#### 1\. The Flow of Action (Commands) 🎬
+Chassis is designed as a modular set of packages to enforce a strong separation between business logic and UI.
 
-When you need to change the application's state, you send a **Command**.
+  * **`chassis` (this package)**: The core, pure Dart library. It contains the foundational building blocks (`Mediator`, `Command`, `Query`, etc.) and has no dependency on Flutter. This is where all your application's business logic lives.
+  * [**`chassis_flutter`**](https://pub.dev/packages/chassis_flutter): Provides Flutter-specific widgets and helpers to integrate the core `chassis` logic by following the `MVVM` pattern.
 
-**Flow:** `ViewModel` ➡️ `Command` ➡️ `Mediator` ➡️ `Handler` ➡️ `Data Layer`
+-----
 
-#### 2\. The Flow of Data (Queries) 📊
+## Core Concepts
 
-When you need to display data, you send a **Query**.
+Chassis is built around the Command Query Responsibility Segregation (CQRS) pattern, adjusted for front-end development needs. Fundamentally, this means separating the act of writing data from reading data.
 
-**Request Flow:** `ViewModel` ➡️ `Query` ➡️ `Mediator` ➡️ `Handler` ➡️ `Data Layer`
-**Data Return Flow:** `ViewModel` ⬅️ `Data` ⬅️ `Handler` ⬅️ `Data Layer`
+* Writes (Commands): Any operation that mutates state is a Command. Commands are objects representing an intent to change something (e.g., CreateUserCommand). They are processed by a single handler containing all the necessary business logic and validation, which ensures data consistency and integrity.
 
-### Core Building Blocks
+* Reads (Queries): All data retrieval is done through Queries. A query asks for information and returns a domain object but is strictly forbidden from changing state.
 
-`chassis` is a pure Dart package that provides the foundational pieces for your application's business logic.
+These messages are routed through a central Mediator, which decouples the sender from the handler. This design provides a clear separation of concerns, enhances scalability, and simplifies complex business domains.
 
-  * **`Command`, `ReadQuery`, `WatchQuery`**: Simple, immutable classes that represent your use cases. A `Command` is an intent to change state, a `ReadQuery` is for a one-time data fetch, and a `WatchQuery` is for subscribing to a data stream.
-  * **`Handlers`**: The classes where your actual business logic lives, processing a single Command or Query.
-  * **`Mediator`**: The central dispatcher that decouples your presentation layer from your business logic handlers.
+**The Flow of Action (Commands) 🎬**
 
-## Usage
+When you need to change the application's state, you send a `Command`.
+
+```
+ViewModel ➡️ Command ➡️ Mediator ➡️ Handler ➡️ Data Layer
+```
+
+**The Flow of Data (Queries) 📊**
+
+When you need to read or subscribe to data, you send a `Query`.
+
+```
+ViewModel ➡️ Query ➡️ Mediator ➡️ Handler ➡️ Data Layer ➡️ Returns Data
+```
+
+-----
+
+## Core API in Action
+
+This example demonstrates the fundamental pattern of defining and handling a message. Note that this code is pure Dart and lives in your core logic, completely independent of Flutter.
 
 #### 1\. Define a Query
 
-A `Query` is a structured message describing the data you want.
+A Query is an immutable message describing the data you want.
 
 ```dart
 // domain/use_cases/get_greeting_query.dart
@@ -58,9 +73,9 @@ class GetGreetingQuery implements ReadQuery<String> {
 }
 ```
 
-#### 2\. Write the Handler
+#### 2\. Create the Handler
 
-A `Handler` contains the business logic to process the `Query`. It receives the message from the `Mediator` and performs the work.
+A Handler contains the business logic to process the Query.
 
 ```dart
 // app/use_cases/get_greeting_query_handler.dart
@@ -72,35 +87,32 @@ class GetGreetingQueryHandler implements ReadHandler<GetGreetingQuery, String> {
 
   @override
   Future<String> read(GetGreetingQuery query) {
-    // Business logic lives here
+    // Your business logic lives here
     return _repository.getGreeting();
   }
 }
 ```
 
-#### 3\. Wire It Up with the Mediator
+#### 3\. Register and Dispatch with the Mediator
 
-At your application's startup, register all your handlers with the `Mediator`.
+At your application's startup, register your handler. Then, from your application logic, dispatch the query to get data.
 
 ```dart
-// app/main.dart
+// At application startup
 final mediator = Mediator();
+final greetingRepository = GreetingRepository();
 
-void main() {
-  // Instantiate dependencies
-  final greetingRepository = GreetingRepository();
-  
-  // Register handlers
-  mediator.registerQueryHandler(GetGreetingQueryHandler(greetingRepository));
-  
-  runApp(const MyApp());
-}
-```
+mediator.registerQueryHandler(GetGreetingQueryHandler(greetingRepository));
 
-Now, from your `ViewModel` (or anywhere else), you can send the request:
-
-```dart
+// From your application layer
 final String greeting = await mediator.read(const GetGreetingQuery());
+print(greeting); // Outputs the result from your repository
 ```
 
-For more information about how to chassis integrates with flutter, see chassis_flutter or the full documentation
+-----
+
+## Next Steps
+
+You've now seen the core pattern of the `chassis` library. To see how to integrate this logic with your Flutter UI, please check out:
+* **The full [documentation](https://affordant.gitbook.io/chassis/)** for advanced concepts, tutorials, and best practices.
+* The **[`chassis_flutter`](https://pub.dev/packages/chassis_flutter)** package to connect your logic to widgets.
