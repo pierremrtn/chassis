@@ -1,5 +1,9 @@
+## 0.0.1+2
+- doc: README improvements.
+
+
 ## 0.0.1+1
-- doc: better README.
+- doc: README improvements.
 
 
 ## 0.0.1

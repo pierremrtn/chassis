@@ -2,7 +2,7 @@
 
 An opinionated architectural framework for Flutter that provides a solid foundation for professional, scalable, and maintainable applications.
 
-#### Rigid in Structure, Flexible in Implementation.
+**Rigid in Structure, Flexible in Implementation.**
 
 Chassis guides your project's structure by combining the clarity of MVVM with a pragmatic, front-end friendly implementation of CQRS principles. It's designed to make best practices the easiest path forward.
 
@@ -32,7 +32,7 @@ Chassis is designed as a modular set of packages to enforce a strong separation 
 
 Chassis is built around the Command Query Responsibility Segregation (CQRS) pattern, adjusted for front-end development needs. Fundamentally, this means separating the act of writing data from reading data.
 
-* Writes (Commands): Any operation that mutates state is a Command. Commands are objects representing an intent to change something (e.g., CreateUserCommand). They are processed by a single handler containing all the necessary business logic and validation, which ensures data consistency and integrity.
+* Writes (Commands): Any operation that mutates domain state (as opposite to view state) is a Command. Commands are objects representing an intent to change something (e.g., CreateUserCommand). They are processed by a single handler containing all the necessary business logic and validation, which ensures data consistency and integrity.
 
 * Reads (Queries): All data retrieval is done through Queries. A query asks for information and returns a domain object but is strictly forbidden from changing state.
 
@@ -68,6 +68,7 @@ A Query is an immutable message describing the data you want.
 // domain/use_cases/get_greeting_query.dart
 import 'package:chassis/chassis.dart';
 
+// Implement ReadQuery for one-time data fetches, or WatchQuery for streams.
 class GetGreetingQuery implements ReadQuery<String> {
   const GetGreetingQuery();
 }
@@ -81,14 +82,21 @@ A Handler contains the business logic to process the Query.
 // app/use_cases/get_greeting_query_handler.dart
 import 'package:chassis/chassis.dart';
 
+// Each message type has a corresponding handler:
+// ReadQuery -> ReadHandler
+// WatchQuery -> WatchHandler
+// Command -> CommandHandler
 class GetGreetingQueryHandler implements ReadHandler<GetGreetingQuery, String> {
-  final IGreetingRepository _repository;
-  GetGreetingQueryHandler(this._repository);
+  final IGreetingRepository greetingRepository;
+  
+  GetGreetingQueryHandler({
+    required this.greetingRepository,
+  });
 
   @override
   Future<String> read(GetGreetingQuery query) {
     // Your business logic lives here
-    return _repository.getGreeting();
+    return greetingRepository.getGreeting();
   }
 }
 ```
@@ -102,7 +110,9 @@ At your application's startup, register your handler. Then, from your applicatio
 final mediator = Mediator();
 final greetingRepository = GreetingRepository();
 
-mediator.registerQueryHandler(GetGreetingQueryHandler(greetingRepository));
+mediator.registerQueryHandler(
+  GetGreetingQueryHandler(greetingRepository: greetingRepository),
+);
 
 // From your application layer
 final String greeting = await mediator.read(const GetGreetingQuery());
