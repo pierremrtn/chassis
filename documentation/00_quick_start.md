@@ -27,13 +27,13 @@ First, add the necessary packages to your `pubspec.yaml`. The `provider` package
 dart pub add chassis chassis_flutter provider
 ```
 
-> **A Layered Architecture 🏗️**
->
-> Chassis thrives on a clean, layered architecture. For this guide, we'll organize our code into three distinct layers:
->
->   * **Domain Layer**: The heart of your application. It contains your core business logic, including use cases (**Handlers**) and data contracts (**Interfaces**). This layer is **pure Dart** and is completely independent of Flutter or any database.
->   * **Data Layer**: This layer implements the contracts from the Domain layer. It's responsible for all communication with the outside world, containing concrete **Repository** implementations that talk to APIs, databases, or other data sources.
->   * **Presentation Layer**: The Flutter UI. This layer is responsible for displaying state to the user and capturing their input. It contains your **Widgets** and **ViewModels**.
+**A Layered Architecture 🏗️**
+
+Chassis thrives on a clean, layered architecture. For this guide, we'll organize our code into three distinct layers:
+
+* **Domain Layer**: The heart of your application. It contains your core business logic, including use cases (**Handlers**) and data contracts (**Interfaces**). This layer is **pure Dart** and is completely independent of Flutter or any database.
+* **Data Layer**: This layer implements the contracts from the Domain layer. It's responsible for all communication with the outside world, containing concrete **Repository** implementations that talk to APIs, databases, or other data sources.
+* **Presentation Layer**: The Flutter UI. This layer is responsible for displaying state to the user and capturing their input. It contains your **Widgets** and **ViewModels**.
 
 -----
 
@@ -332,6 +332,6 @@ class _GreetingScreenState extends State<GreetingScreen> with ConsumerMixin {
 
 You've successfully built a feature following the Chassis architecture\!
 
-By strictly separating your **Domain** (the "what"), **Data** (the "how"), and **Presentation** (the UI), you create code that is decoupled, easier to test, and a joy to maintain.
+By strictly separating your **Domain** (the "what"), **Data** (the "how"), and **Presentation** (the UI), you create code that is decoupled, easier to test, and maintainable.
 
 To learn more, dive into the full documentation to explore commands, advanced error handling, and more powerful features.
