@@ -1,152 +1,101 @@
-# Chassis
+# Welcome to Chassis
 
-**Rigid in the structure, Flexible in the implementation.**
+> **Rigid in Structure, Flexible in Implementation.**
 
 ## Overview
 
-Chassis is an opinionated architectural framework for Flutter that provides a solid foundation for professional, scalable, and maintainable applications. It guides your project's structure by combining the clarity of MVVM with a pragmatic, front-end friendly implementation of CQRS principles.
+Chassis is an opinionated architectural framework for Flutter that provides a solid foundation for professional, scalable, and maintainable applications. It guides your project's structure by combining the clarity of **MVVM** with a pragmatic, front-end friendly implementation of **CQRS** principles.
 
 Think of it like the chassis of a car: it provides a rigid, reliable frame so you can focus on building the features that make your application unique. 🏎️
 
-_**Quick Links:**_
+### Quick Navigation
 
-👉 [Quickstart Guide](00_quick_start.md)
+👉 **[Quickstart Guide](00_quick_start.md)** – Get up and running in minutes.
 
-👉 [API Reference](https://pub.dev/documentation/chassis/latest/)
+👉 **[API Reference](https://pub.dev/documentation/chassis/latest/)** – Detailed documentation for all components.
 
-👉 [Submit Issues](https://github.com/pierremrtn/chassis/issues)
+👉 **[GitHub Repository](https://github.com/pierremrtn/chassis/issues)** – Submit issues, contribute, and see the source.
 
-👉 [Roadmap](ROADMAP.md)
+-----
 
-### Core Philosophy
+## The Philosophy: Structure by Design
 
-The design of Chassis is driven by a few core principles to ensure that building on a solid architecture feels productive, not restrictive.
+Good architecture shouldn't rely on developer discipline alone. Chassis is designed around a few core principles to make best practices the path of least resistance.
 
-* **Structure by Design:** Good architecture shouldn't rely on developer discipline alone. Chassis enforces a clear separation of concerns through its defined data flow, making it intuitive to write clean, organized code.
+  * 🏛️ **Structure by Design:** Chassis enforces a clear separation of concerns through its defined data flow. This makes it intuitive to write clean, organized code that is easy for anyone on the team to navigate.
+  * 🧩 **Rigid Structure, Flexible Logic:** The overall flow of data is consistent and predictable. However, your actual business logic within each component remains isolated, flexible, and easy to change.
+  * ✅ **Testability First:** Every layer, from ViewModels to business logic Handlers, is decoupled by design, making it simple to mock dependencies and test any part of your application in isolation.
+  * 🧑‍💻 **Developer Experience Focused:** We aim for minimal boilerplate and a clean, intuitive API. The goal is to make building on a solid architecture feel productive, not restrictive.
 
-* **Rigid Structure, Flexible Logic:** The overall flow of data and execution is consistent across the framework, ensuring predictability. However, your actual business logic within each component remains isolated, flexible, and easy to change.
+-----
 
-* **Testability First:** Every layer of the architecture, from ViewModels to business logic handlers, is decoupled and designed to be easily mockable and testable in isolation.
+## Core Concepts
 
-* **Developer Experience Focused:** We aim for minimal boilerplate and a clean, intuitive API. The goal is to make best practices the easiest path forward.
+Chassis is built around the **Command Query Responsibility Segregation (CQRS)** pattern, adjusted for front-end development needs. Fundamentally, this means separating the act of writing data from reading data.
 
-### The Chassis Architecture: A Clean and Pragmatic Approach
+  * **Writes (Commands):** Any operation that mutates domain state (as opposed to view state) is a **Command**. Commands are objects representing an intent to change something (e.g., `CreateUserCommand`). They are processed by a single handler containing all the necessary business logic and validation, which ensures data consistency and integrity.
+  * **Reads (Queries):** All data retrieval is done through **Queries**. A query asks for information and returns a domain object but is strictly forbidden from changing state.
 
-At its core, Chassis implements the principles of Clean Architecture to create a clear separation between your UI and your core business logic. When applied correctly, this separation results in a codebase that is significantly easier to maintain, reason about, and evolve.
+These messages are routed through a central **Mediator**, which decouples the sender from the handler. This design provides a clear separation of concerns, enhances scalability, and simplifies complex business domains.
 
-However, the discipline required for a clean architecture is often traded for short-term development speed, which quickly accumulates technical debt. Chassis addresses this directly by providing a standardized, opinionated structure that makes best practices the path of least resistance, keeping the cognitive load to a minimum.
+#### The Flow of Action (Commands) 🎬
 
-This structure establishes two primary, predictable, and unidirectional data flows: one for executing actions and another for retrieving data.
+When you need to change the application's state, you send a `Command`.
 
-#### 1. The Flow of Action (Commands) 🎬
+```
+ViewModel ➡️ Command ➡️ Mediator ➡️ Handler ➡️ Data Layer
+```
 
-When you need to change the state of your application (e.g., save user data, submit a form), you use a Command. This flow is a one-way street designed to perform an action and ensure side effects are handled in a controlled way.
+#### The Flow of Data (Queries) 📊
 
-Flow:
-ViewModel ➡️ Command ➡️ Mediator ➡️ Handler ➡️ Data Layer (e.g., Repository)
+When you need to read or subscribe to data, you send a `Query`.
 
-1. The ViewModel creates and dispatches a Command containing all necessary data.
-2. The Mediator routes the command to its specific CommandHandler.
-3. The Handler contains the business logic, validating the command and interacting with the Data Layer (like a Repository or an API client) to persist the changes.
+```
+ViewModel ➡️ Query ➡️ Mediator ➡️ Handler ➡️ Data Layer ➡️ Returns Data
+```
 
-#### 2. The Flow of Data (Queries) 📊
+-----
 
-When you need to display data in the UI, you use a Query. This is a read-only operation. The flow goes down to fetch the data and then comes back up with the result.
+## Core Components
 
-Request Flow:
-ViewModel ➡️ Query ➡️ Mediator ➡️ Handler ➡️ Data Layer
+Chassis is composed of two packages that work together: a core architectural library and a Flutter presentation layer.
 
-Data Return Flow:
-ViewModel ⬅️ Data ⬅️ Handler ⬅️ Data Layer
+### **`chassis`**: The Core Architectural Layer
 
-1. The ViewModel dispatches a Query describing the data it needs.
-2. The Mediator routes it to the appropriate QueryHandler.
-3. The Handler fetches the data from the Data Layer.
-4. The requested data is then returned back up the chain to the ViewModel, which prepares it for the UI to display.
+A pure Dart package providing the foundational pieces for your application's business logic, completely independent of the UI.
 
-#### 3. Bringing it All Together: ViewModel, Mediator, and Handler 🤝
+  * **Mediator**: The central router that decouples your UI from your business logic.
+  * **Messages**: Immutable classes that represent your use cases (`Command`, `ReadQuery`, `WatchQuery`).
+  * **Handlers**: Classes where your business logic lives. Each handler is responsible for a single message.
 
-This entire architecture is built on the interplay between three key components: the ViewModel, the Mediator, and the Handler.
+### **`chassis_flutter`**: The Presentation Layer
 
-* The ViewModel is the Initiator. It lives in the presentation layer and translates user interactions into Command and Query messages. It knows what action needs to happen, but not how or where it will be executed.
+This package seamlessly connects your core logic to the Flutter widget tree.
 
-* The Mediator is the Router. It receives a message from the ViewModel and, based on its type, finds the single, specific Handler registered to process it. This completely decouples the UI from the business logic.
+  * **ViewModel**: The base class for your presentation logic, holding UI state and dispatching messages.
+  * **ViewModelProvider**: A widget that uses `provider` to inject your `ViewModel` into the widget tree.
+  * **ConsumerMixin**: A mixin for handling one-time events from the `ViewModel` (like showing a dialog).
 
-* The Handler is the Executor. This is where your actual business logic lives. Each Handler is a focused class responsible for a single task: it validates the request, performs the necessary operations, and calls any required external services (like a repository or an API client).
+-----
 
-This three-part structure—Initiator (ViewModel), Router (Mediator), and Executor (Handler)—ensures a clean, predictable, and highly testable flow for every feature in your application.
+## Chassis vs. State Management
 
+The Flutter ecosystem has excellent state management libraries like **BLoC** and **Riverpod**. **Chassis is not a replacement for them—it operates at a different level of abstraction.**
 
-## What's in the Box? 🎁
+BLoC and Riverpod are primarily **tools for state management**. Chassis is an **opinionated framework for application architecture** that uses those tools as part of its foundation.
 
-Chassis provides a concise set of tools, divided into core architectural components and Flutter-specific helpers, to streamline your development process.
+| Aspect                | BLoC / Riverpod                                                  | Chassis                                                                |
+| :-------------------- | :--------------------------------------------------------------- | :----------------------------------------------------------------------------- |
+| **Primary Goal** | Efficiently manage state and rebuild the UI when it changes.     | Enforce a consistent, scalable, and decoupled application structure.           |
+| **Where Logic Lives** | **Flexible.** Logic can live in a `Bloc`, service, or repository. | **Prescriptive.** Business logic **must** live in dedicated `Handler` classes. |
+| **Architectural Style** | **High Freedom.** Provides powerful primitives to design your own structure. | **Low Freedom.** Provides a strict structure in exchange for consistency.        |
 
-### **chassis:** Core Domain Building Blocks
-
-A pure dart package that provides foundational pieces for building your application's business logic, completely independent of the UI.
-
-* `Mediator`: The central dispatcher that decouples your presentation layer from your business logic handlers. You send a request, and it finds the right handler.
-
-* `Command`, `ReadQuery`, `WatchQuery`: Simple, immutable message classes that represent your use cases:
-- Command: An intent to change state (a write operation).
-- ReadQuery: A request for a one-time data fetch (a read operation).
-- WatchQuery: A request to subscribe to a continuous stream of data.
-
-* `Handlers`: The corresponding CommandHandler, ReadHandler, and WatchHandler classes where your actual business logic lives.
-
-### **chassis_flutter:** Flutter Integration & Helpers
-
-A flutter package that provides the MVVM part of chassis. These components seamlessly connect your domain logic to the Flutter widget tree, reducing boilerplate and simplifying state management.
-
-* `ViewModel`: The base class for your presentation logic. It includes convenient methods (e.g., `read`, `watch`, `run`) for easily dispatching Commands and Queries and managing UI state.
-
-* `ViewModelProvider`: A simple and efficient widget for providing your ViewModel instances to the widget tree, making them easily accessible to your UI screens.
-
-* `ConsumerMixin`: A mixin for your StatefulWidgets that simplifies the process of listening to ViewModel changes and automatically rebuilding your UI when the state updates.
-
-## Architectural Philosophy: Chassis vs. State Management Libraries
-
-Flutter's ecosystem includes mature, powerful state management libraries like BLoC and Riverpod. Chassis is not a replacement for these; it operates at a different level of abstraction and aims to solve a different set of architectural challenges.
-
-The fundamental difference is one of **scope**. BLoC and Riverpod are primarily **tools for state management and dependency injection**. Chassis is an **opinionated framework for application architecture** that uses state management as one of its components.
-
----
-
-### Core Distinctions
-
-This table outlines the practical differences in philosophy and implementation.
-
-| Aspect | BLoC / Riverpod | Chassis |
-| :--- | :--- | :--- |
-| **Primary Goal** | To provide and manage the lifecycle of state and dependencies, and to efficiently rebuild the UI when state changes. | To enforce a consistent, scalable, and decoupled application structure based on Clean Architecture, MVVM, and CQRS principles. |
-| **Locus of Business Logic** | **Flexible.** Business logic often resides within the `Bloc` or `Notifier`, but can be delegated to services or repositories. The developer decides on a case-by-case basis. | **Prescriptive.** Business logic **must** live in dedicated `Handler` classes. This is a non-negotiable rule of the framework, ensuring logic is always isolated from the presentation layer. |
-| **Coupling** | **Flexible.** Business logic can live inside a `Bloc`/`Notifier`, be delegated to a Repository, or placed in a separate service/use case class. This flexibility requires strong team discipline to prevent logic from becoming scattered and creating "fat" providers or repositories. | **Prescriptive and Centralized.** Business logic **must** live in a dedicated `Handler` (which represents a specific use case). This architectural rule prevents logic from leaking into the presentation or data layers, creating a single, predictable, and testable location for every action in your app. |
-| **Developer Freedom** | **High.** You are given powerful primitives and are free to design your own application structure around them. | **Low.** You are given a strict structure to follow. The framework makes many architectural decisions for you in exchange for consistency. |
-
----
-
-### Understanding the Trade-offs
-
-Choosing an architectural approach involves trade-offs. The right choice depends on your project's scale, team structure, and long-term goals.
-
-#### When to Prefer BLoC or Riverpod:
-
-BLoC and Riverpod are an excellent fit for a wide range of applications, particularly when:
-
-* **Flexibility is paramount.** You want powerful tools without a framework dictating your entire project structure.
-* **Rapid development is needed for smaller features.** The boilerplate for simple state changes is minimal. You can create a Notifier or Bloc and consume it immediately.
-* **Your team already has strong, established architectural conventions.** If your team is disciplined in its approach to separating concerns, the enforcement offered by Chassis may be redundant.
-* **The project is small to medium-sized.** For simpler applications, the structural overhead of Chassis can be unnecessary and may slow down development.
-
-**The Trade-off:** Their flexibility means that consistency relies entirely on developer discipline. In large teams or over a long project lifecycle, this can lead to "architectural drift," where different features are implemented in vastly different ways.
-
-#### When to Choose Chassis:
+### When to Choose Chassis
 
 Chassis is designed for scenarios where architectural consistency and scalability are the highest priorities:
 
-* **You are building a large, complex application.** The framework is designed to manage complexity by ensuring every feature is structured identically.
-* **Consistency across a large team is critical.** Chassis provides non-negotiable guardrails, ensuring that all developers, regardless of experience level, follow the same pattern. This makes the codebase predictable and easier to navigate.
-* **A strict separation of concerns is a project requirement.** The Mediator pattern ensures your business logic (use cases) is completely decoupled from the UI, making it independently testable and reusable.
-* **You are explicitly implementing Clean Architecture or CQRS.** Chassis provides a ready-made, practical implementation of these patterns, saving you the effort of building the foundation yourself.
+  * You are building a **large, complex application**.
+  * **Consistency across a large team** is critical.
+  * A **strict separation of concerns** is a project requirement.
 
-**The Trade-off:** The structure comes at a cost. There is more upfront boilerplate for simple operations (e.g., creating `Command`, `Query`, and `Handler` files for a single feature). This "ceremony" can feel like overkill for small-scale tasks and applications.
+**The Trade-off:** There is more upfront boilerplate for simple features. This "ceremony" is the price for long-term scalability and maintainability.
