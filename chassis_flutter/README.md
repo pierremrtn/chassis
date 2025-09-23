@@ -1,6 +1,6 @@
 # chassis_flutter 🏎️
 
-> **Rigid in Structure, Flexible in Implementation.**
+**Rigid in Structure, Flexible in Implementation.**
 
 This package provides Flutter widgets and helpers to integrate the core [`chassis`](https://pub.dev/packages/chassis) architecture. It connects your business logic to the UI using the `provider` package, giving you the necessary tools to create a clean, reactive, and highly testable presentation layer following the **MVVM** pattern.
 
@@ -10,7 +10,7 @@ Learn more from the full [documentation](https://affordant.gitbook.io/chassis/).
 
 ## Core Components
 
-`chassis_flutter` provides a few key components to bridge the gap between your domain logic ([`chassis`](https://pub.dev/packages/chassis_flutter)) and your user interface (Flutter).
+`chassis_flutter` provides a few key components to bridge the gap between your domain logic ([`chassis`](https://pub.dev/packages/chassis)) and your user interface (Flutter).
 
 * `ViewModel`: The bridge between your UI and your domain. It holds UI state, processes user input by sending messages to the `Mediator`, and exposes results for the View to display.
 * `ViewModelProvider`: A simple widget, built on top of `provider`, for injecting your `ViewModel` into the widget tree and making it accessible to your screens.
