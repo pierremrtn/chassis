@@ -1,3 +1,7 @@
+## 0.0.1+3
+- doc: added pubspec topics.
+
+
 ## 0.0.1+2
 - doc: README improvements.
 
