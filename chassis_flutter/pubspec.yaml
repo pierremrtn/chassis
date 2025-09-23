@@ -1,8 +1,14 @@
 name: chassis_flutter
 description: An architectural framework for flutter applications
-version: 0.0.1+1
+version: 0.0.1+2
 repository: https://github.com/pierremrtn/chassis
 homepage: https://affordant.gitbook.io/chassis/
+topics: 
+  - chassis
+  - mvvm
+  - cqrs
+  - architecture
+  - state-management
 
 environment:
   sdk: ^3.6.2
