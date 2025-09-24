@@ -1,10 +1,16 @@
 # Table of contents
 
-* [Welcome to Chassis](README.md)
+## Getting Started
+
+* [About Chassis](README.md)
 * [Quickstart Guide](00_quick_start.md)
-* [In-Depth Architecture Guide: The Chassis Framework](01_architecture_guide.md)
-* [Chassis Project Structure Guide 🏗️](02_project_organisation.md)
-* [Chassis Naming Convention Guide 📜](03_naming_convention.md)
-* [ROADMAP](ROADMAP.md)
-* [test](test/README.md)
-  * [hello](test/hello.md)
+
+## Basics
+
+* [Architecture](01_architecture_guide.md)
+* [Project Structure](02_project_organisation.md)
+* [Naming Convention](03_naming_convention.md)
+
+## Reference
+* [chassis](https://pub.dev/documentation/chassis/latest/)
+* [chassis](https://pub.dev/packages/chassis_flutter)
