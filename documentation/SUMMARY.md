@@ -12,5 +12,6 @@
 * [Naming Convention](03_naming_convention.md)
 
 ## Reference
+
 * [chassis](https://pub.dev/documentation/chassis/latest/)
-* [chassis](https://pub.dev/packages/chassis_flutter)
+* [chassis\_flutter](https://pub.dev/packages/chassis_flutter)

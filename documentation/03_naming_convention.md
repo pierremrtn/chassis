@@ -1,11 +1,14 @@
+---
+icon: pen-field
+---
 
-# Chassis Naming Convention Guide 📜
+# Naming Convention
 
 A consistent naming convention is the cornerstone of a maintainable and scalable application. In large-scale applications, predictability is key. Following these guidelines ensures that any developer can navigate the codebase, understand the purpose of a class at a glance, and locate files with ease.
 
 This guide covers the naming for all major components of the Chassis architecture: **Commands**, **Queries**, **Handlers**, **ViewModels**, and their corresponding files.
 
----
+***
 
 ## Commands
 
@@ -14,9 +17,9 @@ Commands represent an intent to **change the state** of the application. Their n
 ### Pattern: `[Verb][Resource]Command`
 
 * **Verb:** Use an imperative, present-tense verb that clearly describes the operation.
-    * *Examples:* `Create`, `Update`, `Register`, `Assign`, `Delete`, `Submit`, `Approve`.
+  * _Examples:_ `Create`, `Update`, `Register`, `Assign`, `Delete`, `Submit`, `Approve`.
 * **Resource:** The business entity or concept the command acts upon. For targeted updates, be specific about the property being changed.
-    * *Examples:* `Project`, `User`, `OrderItem`, `ProjectName`, `UserPassword`.
+  * _Examples:_ `Project`, `User`, `OrderItem`, `ProjectName`, `UserPassword`.
 * **Suffix:** Always end the class name with `Command`.
 
 ### Examples:
@@ -26,7 +29,7 @@ Commands represent an intent to **change the state** of the application. Their n
 * **Deletion:** `DeleteProjectCommand`, `RemoveItemFromCartCommand`
 * **State Changes:** `SubmitOrderCommand`, `ApproveTimesheetCommand`
 
----
+***
 
 ## Queries
 
@@ -40,9 +43,9 @@ These queries ask for a snapshot of the system's state at a single point in time
 
 * **Verb:** **`Read`** is the standard and preferred verb. Use **`Find`** as an alternative when the result is not guaranteed to exist.
 * **Resource:** The entity or Data Transfer Object (DTO) being retrieved.
-    * *Examples:* `Project`, `User`, `OrderSummary`, `ActiveUsers`.
+  * _Examples:_ `Project`, `User`, `OrderSummary`, `ActiveUsers`.
 * **Criteria (Optional):** Use `By` to specify the filter or condition for the query. Use `All` for fetching collections without a specific filter.
-    * *Examples:* `ById`, `ByEmail`, `All`.
+  * _Examples:_ `ById`, `ByEmail`, `All`.
 * **Suffix:** Always end the class name with `Query`.
 
 #### Examples:
@@ -69,7 +72,7 @@ These queries subscribe to a data source and return a `Stream` of updates over t
 * `WatchQueryAllActiveTicketsQuery`
 * `WatchQueryOrderStatusQuery`
 
----
+***
 
 ## Handlers
 
@@ -81,14 +84,14 @@ To name a handler, simply take the **full class name** of the `Command` or `Quer
 
 ### Examples:
 
-| Message (Command/Query) | Handler |
-| :--- | :--- |
-| `CreateProjectCommand` | `CreateProjectCommandHandler` |
-| `UpdateProjectNameCommand` | `UpdateProjectNameCommandHandler` |
-| `ReadProjectByIdQuery` | `ReadProjectByIdQueryHandler` |
+| Message (Command/Query)           | Handler                                  |
+| --------------------------------- | ---------------------------------------- |
+| `CreateProjectCommand`            | `CreateProjectCommandHandler`            |
+| `UpdateProjectNameCommand`        | `UpdateProjectNameCommandHandler`        |
+| `ReadProjectByIdQuery`            | `ReadProjectByIdQueryHandler`            |
 | `WatchQueryAllActiveTicketsQuery` | `WatchQueryAllActiveTicketsQueryHandler` |
 
----
+***
 
 ## ViewModels
 
