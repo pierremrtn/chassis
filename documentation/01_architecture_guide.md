@@ -1,5 +1,4 @@
-#
-z Chassis Architecture Guide
+# Chassis Architecture Guide
 
 Most software projects start with incredible speed but gradually slow down as complexity mounts. Over time, they can devolve into a **"Big Ball of Mud"**—a tangled, fragile system where every part is coupled to every other part. In this state, adding features becomes slow, fixing bugs is risky, and testing feels impossible.
 
@@ -25,7 +24,7 @@ Clean Architecture is a design philosophy that organizes a project into distinct
 To create this separation, Chassis organizes your application around a central core. The best way to visualize this is a **Hub-and-Spoke model**. The Domain Layer is the stable, independent hub, and all other layers are spokes that depend on it.
 
 ```mermaid
-graph TD
+flowchart TD
     subgraph External Layers
         Presentation[Presentation Layer 📱]
         Infrastructure[Infrastructure Layer 💾]
@@ -63,11 +62,9 @@ But this raises a critical question: If the Domain can't depend on the Infrastru
 
 -----
 
-## The Glue: Dependency Inversion & Repositories ⛓️
+## Dependency Inversion & Repositories ⛓️
 
 The answer lies in the **Dependency Inversion Principle**. This principle flips the traditional flow of control. Instead of the Domain depending on low-level details, the details depend on abstractions defined by the Domain.
-
-Think of it this way: The Domain acts like a CEO. The CEO doesn't know how to operate the machinery in the factory, but they create a job description (a contract) for a "Factory Operator." The Infrastructure layer then provides a qualified worker who fulfills that contract. The CEO only ever talks to the job title, not the specific person.
 
 ### Contracts and Implementations
 
@@ -78,7 +75,7 @@ Think of it this way: The Domain acts like a CEO. The CEO doesn't know how to op
 <!-- end list -->
 
 ```mermaid
-graph TD
+flowchart TD
     subgraph Domain Layer
         IUserRepository("IUserRepository (Contract 📜)")
         UseCase[Use Case / Handler]
@@ -112,7 +109,7 @@ The answer is to treat the Domain as a service that exposes a formal, message-ba
 These messages don't talk directly to their handlers. They communicate through a **Mediator**, which acts like a central post office for your application's core logic. A `ViewModel` doesn't need to know which handler creates a user; it simply wraps the data in a `CreateUserCommand` and sends it to the Mediator.
 
 ```mermaid
-graph LR
+flowchart LR
     subgraph Presentation Layer
         ViewModel[ViewModel]
     end
