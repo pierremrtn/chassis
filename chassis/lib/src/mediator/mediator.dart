@@ -45,7 +45,7 @@ class Mediator {
   /// Example:
   /// ```dart
   /// mediator.registerQueryHandler<GetUserQuery, User>(
-  ///   ReadHandler<GetUserQuery, User>(read: (query) async {
+  ///   ReadHandler<GetUserQuery, User>((query) async {
   ///     return await userRepository.findById(query.userId);
   ///   }),
   /// );
@@ -81,7 +81,7 @@ class Mediator {
   /// Example:
   /// ```dart
   /// mediator.registerCommandHandler<CreateUserCommand, User>(
-  ///   CommandHandler<CreateUserCommand, User>(run: (command) async {
+  ///   CommandHandler<CreateUserCommand, User>((command) async {
   ///     return await userRepository.create(command.name, command.email);
   ///   }),
   /// );

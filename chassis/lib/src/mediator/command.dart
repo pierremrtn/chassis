@@ -37,8 +37,32 @@ abstract class Command<R> {
 ///               email: command.email,
 ///             );
 ///             return user;
-///           },
-///         );
+///           });
+/// }
+///
+/// // For more complex scenarios, implement the interface instead:
+/// class CreateUserCommandHandler implements CommandHandler<CreateUserCommand, User> {
+///   final IUserRepository repository;
+///   final IAuditLogger auditLogger;
+///
+///   CreateUserCommandHandler({
+///     required this.repository,
+///     required this.auditLogger,
+///   });
+///
+///   @override
+///   Future<User> run(CreateUserCommand command) async {
+///     // More complex business logic with multiple dependencies
+///     await auditLogger.logAction('Creating user: ${command.email}');
+///
+///     final user = await repository.create(
+///       name: command.name,
+///       email: command.email,
+///     );
+///
+///     await auditLogger.logAction('User created successfully: ${user.id}');
+///     return user;
+///   }
 /// }
 /// ```
 class CommandHandler<C extends Command<R>, R> {

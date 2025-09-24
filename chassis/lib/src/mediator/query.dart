@@ -66,12 +66,40 @@ class QueryHandler<Q extends Query<R>, R> {}
 /// Example usage:
 /// ```dart
 /// final handler = ReadHandler<GetUserQuery, User>(
-///   read: (query) async {
+///   (query) async {
 ///     // Business logic to fetch user
 ///     final user = await userRepository.findById(query.userId);
 ///     return user;
 ///   },
 /// );
+///
+/// // For more complex scenarios, implement the interface instead:
+/// class GetUserQueryHandler implements ReadHandler<GetUserQuery, User> {
+///   final IUserRepository userRepository;
+///   final ICacheService cacheService;
+///
+///   GetUserQueryHandler({
+///     required this.userRepository,
+///     required this.cacheService,
+///   });
+///
+///   @override
+///   Future<User> read(GetUserQuery query) async {
+///     // Check cache first
+///     final cachedUser = await cacheService.get<User>('user_${query.userId}');
+///     if (cachedUser != null) {
+///       return cachedUser;
+///     }
+///
+///     // Fetch from repository
+///     final user = await userRepository.findById(query.userId);
+///
+///     // Cache the result
+///     await cacheService.set('user_${query.userId}', user);
+///
+///     return user;
+///   }
+/// }
 /// ```
 class ReadHandler<Q extends ReadQuery<R>, R> implements QueryHandler<Q, R> {
   /// Creates a read handler with the given [read] callback.
@@ -101,11 +129,34 @@ class ReadHandler<Q extends ReadQuery<R>, R> implements QueryHandler<Q, R> {
 /// Example usage:
 /// ```dart
 /// final handler = WatchHandler<WatchUserQuery, User>(
-///   watch: (query) {
+///   (query) {
 ///     // Business logic to watch user changes
 ///     return userRepository.watchById(query.userId);
 ///   },
 /// );
+///
+/// // For more complex scenarios, implement the interface instead:
+/// class WatchUserQueryHandler implements WatchHandler<WatchUserQuery, User> {
+///   final IUserRepository userRepository;
+///   final IRealtimeService realtimeService;
+///
+///   WatchUserQueryHandler({
+///     required this.userRepository,
+///     required this.realtimeService,
+///   });
+///
+///   @override
+///   Stream<User> watch(WatchUserQuery query) {
+///     // Combine multiple data sources
+///     final localStream = userRepository.watchById(query.userId);
+///     final remoteStream = realtimeService.watchUserChanges(query.userId);
+///
+///     // Merge and transform the streams
+///     return Stream.merge([localStream, remoteStream])
+///         .distinct()
+///         .map((user) => user.copyWith(lastSeen: DateTime.now()));
+///   }
+/// }
 /// ```
 class WatchHandler<Q extends WatchQuery<R>, R> implements QueryHandler<Q, R> {
   /// Creates a watch handler with the given [watch] callback.
