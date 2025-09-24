@@ -35,7 +35,7 @@ Commands represent an intent to **change the state** of the application. Their n
 
 Queries represent a request to **read data** from the application without modifying its state. Chassis distinguishes between two types of queries: one-time fetches (`ReadQuery`) and continuous streams (`WatchQuery`).
 
-### `Read` Queries (One-Time Fetch)
+### `ReadQuery` Queries (One-Time Fetch)
 
 These queries ask for a snapshot of the system's state at a single point in time and return a `Future`.
 
