@@ -14,4 +14,4 @@
 ## Reference
 
 * [chassis](https://pub.dev/documentation/chassis/latest/)
-* [chassis\_flutter](https://pub.dev/packages/chassis_flutter)
+* [chassis\_flutter](https://pub.dev/documentation/chassis_flutter/latest/)
