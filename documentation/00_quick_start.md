@@ -1,23 +1,27 @@
+---
+icon: bolt
+---
+
 # Quickstart Guide
 
-Welcome\! This guide will walk you through building your first feature with Chassis, from writing core business logic in pure Dart to creating a fully reactive Flutter UI.
+Welcome! This guide will walk you through building your first feature with Chassis, from writing core business logic in pure Dart to creating a fully reactive Flutter UI.
 
 ## What You'll Build
 
 You'll create a simple screen with a button. When pressed, the app will fetch a greeting message, display a loading indicator while it works, show an error if something goes wrong, and then display the final message. This example covers the essential end-to-end flow of the Chassis architecture.
 
------
+***
 
 ## The Core Philosophy 🎯
 
 Chassis is built on the principle of **Command-Query Separation (CQS)**, which organizes your logic into two distinct categories:
 
-  * **Queries**: These are requests to **read or fetch data**. Think of them as asking a question. They are side-effect-free and do not alter the state of the application.
-  * **Commands**: These are requests to **change state or perform an action**. Think of them as giving an order, like saving data, logging a user in, or updating a profile.
+* **Queries**: These are requests to **read or fetch data**. Think of them as asking a question. They are side-effect-free and do not alter the state of the application.
+* **Commands**: These are requests to **change state or perform an action**. Think of them as giving an order, like saving data, logging a user in, or updating a profile.
 
 This separation is the key to creating predictable, scalable, and highly testable applications.
 
------
+***
 
 ## Step 1: Setup & Project Structure
 
@@ -35,11 +39,11 @@ Chassis thrives on a clean, layered architecture. For this guide, we'll organize
 * **Data Layer**: This layer implements the contracts from the Domain layer. It's responsible for all communication with the outside world, containing concrete **Repository** implementations that talk to APIs, databases, or other data sources.
 * **Presentation Layer**: The Flutter UI. This layer is responsible for displaying state to the user and capturing their input. It contains your **Widgets** and **ViewModels**.
 
------
+***
 
 ## Step 2: The Domain Layer (The "What")
 
-Let's define the business logic for our feature. This layer describes *what* our app can do, not *how* it does it. It has **no Flutter or infrastructure dependencies**.
+Let's define the business logic for our feature. This layer describes _what_ our app can do, not _how_ it does it. It has **no Flutter or infrastructure dependencies**.
 
 ### Define the Query
 
@@ -93,7 +97,7 @@ class GetGreetingQueryHandler implements ReadHandler<GetGreetingQuery, String> {
 }
 ```
 
------
+***
 
 ## Step 3: The Data Layer (The "How")
 
@@ -122,7 +126,7 @@ class GreetingRepository implements IGreetingRepository {
 }
 ```
 
------
+***
 
 ## Step 4: Wire It Up with the Mediator
 
@@ -149,7 +153,7 @@ void main() {
 }
 ```
 
------
+***
 
 ## Step 5: The Presentation Layer (The UI)
 
@@ -235,7 +239,7 @@ class GreetingViewModel extends ViewModel<GreetingState, GreetingEvent> {
 
 Finally, use `ViewModelProvider` to make the `ViewModel` accessible to your widget tree, and then build your UI to react to its state and events.
 
-#### 1\. Provide the ViewModel
+#### 1. Provide the ViewModel
 
 Wrap your `MaterialApp` or a specific screen route with `ViewModelProvider`. This injects your `GreetingViewModel` into the widget tree so that `GreetingScreen` and its children can access it.
 
@@ -262,7 +266,7 @@ class MyApp extends StatelessWidget {
 }
 ```
 
-#### 2\. Build the Screen
+#### 2. Build the Screen
 
 Your widget can now listen to the `ViewModel`. Use `context.watch` to rebuild when the state changes and the `ConsumerMixin` to react to events.
 
@@ -326,11 +330,11 @@ class _GreetingScreenState extends State<GreetingScreen> with ConsumerMixin {
 }
 ```
 
------
+***
 
-## Congratulations\! 🚀
+## Congratulations! 🚀
 
-You've successfully built a feature following the Chassis architecture\!
+You've successfully built a feature following the Chassis architecture!
 
 By strictly separating your **Domain** (the "what"), **Data** (the "how"), and **Presentation** (the UI), you create code that is decoupled, easier to test, and maintainable.
 
