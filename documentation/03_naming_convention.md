@@ -59,18 +59,18 @@ These queries ask for a snapshot of the system's state at a single point in time
 
 These queries subscribe to a data source and return a `Stream` of updates over time.
 
-#### Pattern: `WatchQuery[Resource]By[Criteria]Query`
+#### Pattern: `Watch[Resource]By[Criteria]Query`
 
-* **Verb:** **`WatchQuery`** is the standard verb. **`Observe`** is a suitable alternative.
+* **Verb:** **`Watch`** is the standard verb.
 * **Resource:** The entity or DTO being observed.
 * **Criteria (Optional):** Specifies what is being watched.
 * **Suffix:** Always end the class name with `Query`.
 
 #### Examples:
 
-* `WatchQueryProjectByIdQuery`
-* `WatchQueryAllActiveTicketsQuery`
-* `WatchQueryOrderStatusQuery`
+* `WatchProjectByIdQuery`
+* `WatchAllActiveTicketsQuery`
+* `WatchOrderStatusQuery`
 
 ***
 
@@ -89,7 +89,7 @@ To name a handler, simply take the **full class name** of the `Command` or `Quer
 | `CreateProjectCommand`            | `CreateProjectCommandHandler`            |
 | `UpdateProjectNameCommand`        | `UpdateProjectNameCommandHandler`        |
 | `ReadProjectByIdQuery`            | `ReadProjectByIdQueryHandler`            |
-| `WatchQueryAllActiveTicketsQuery` | `WatchQueryAllActiveTicketsQueryHandler` |
+| `WatchAllActiveTicketsQuery`      | `WatchAllActiveTicketsQueryHandler` |
 
 ***
 
