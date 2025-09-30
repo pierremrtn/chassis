@@ -50,43 +50,27 @@ import 'package:flutter/material.dart';
 /// ```
 /// {@endtemplate}
 mixin ConsumerMixin<Widget extends StatefulWidget> on State<Widget> {
-  Object? _viewModel;
-  StreamSubscription? _eventSubscription;
+  final Map<Type, StreamSubscription> _subscriptions = {};
 
-  /// {@macro consumer_mixin}
   @override
   void dispose() {
-    _cleanupSubscription();
+    for (var sub in _subscriptions.values) {
+      sub.cancel();
+    }
+    _subscriptions.clear();
     super.dispose();
   }
 
-  /// Sets up a subscription to the view model's events stream.
-  void _setupSubscription<E>(
-      ViewModel<dynamic, E> vm, void Function(E) callback) {
-    _viewModel = vm;
-    _eventSubscription = vm.events.listen(callback);
-  }
-
-  /// Cleans up the current event subscription.
-  void _cleanupSubscription() {
-    _eventSubscription?.cancel();
-    _eventSubscription = null;
-    _viewModel = null;
-  }
-
-  /// {@macro consumer_mixin}
-  /// Listens to events from a view model of type [T] and calls [onEvent] when events are emitted.
-  ///
-  /// This method automatically manages the subscription lifecycle and will
-  /// re-subscribe if the view model instance changes. The subscription is
-  /// automatically disposed when the widget is disposed.
   void onEvent<T extends ViewModel<dynamic, E>, E>(
     void Function(E event) onEvent,
   ) {
-    final newViewModel = context.read<T>();
-    if (_viewModel != newViewModel) {
-      _cleanupSubscription();
-      _setupSubscription(newViewModel, onEvent);
+    final key = T;
+
+    if (_subscriptions.containsKey(key)) {
+      throw StateError('Event listener already registered for $T');
     }
+
+    final vm = context.read<T>();
+    _subscriptions[key] = vm.events.listen(onEvent);
   }
 }
