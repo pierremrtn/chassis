@@ -24,8 +24,10 @@ Clean Architecture is a design philosophy that organizes a project into distinct
 
 CQRS provides a formal, message-based API for your business logic by separating operations that change state from those that read it.
 
-* **Commands:** These are messages representing an intent to perform a write operation (e.g., `CreateUserCommand`).
-* **Queries:** These are messages representing a request for information (e.g., `GetUserByIdQuery`).
+* **Commands:** Messages representing an intent to perform a write operation (e.g., `CreateUserCommand`).
+* **Queries:** Messages representing a request for information. Chassis provides two types to support different UI needs:
+    * **`ReadQuery`:** Fetches a static snapshot of data at a single point in time. Perfect for data that doesn't change often.
+    * **`WatchQuery`:** Subscribes to a live stream of data. This is the foundation for building reactive UIs that update automatically.
 
 This separation makes the system's capabilities explicit and provides a central point for handling cross-cutting concerns.
 
@@ -72,52 +74,52 @@ This section defines the role and responsibility of each component in the Chassi
 An immutable data class representing a single, specific intention within the application. Its primary responsibility is to act as a formal message, decoupling the requester of an operation from the performer.
 
 * **Should Contain:**
-  * Only the data required to perform the operation.
+    * Only the data required to perform the operation.
 * **Should NOT Contain:**
-  * Business logic, validation rules, or any behavior.
+    * Business logic, validation rules, or any behavior.
 
 #### Handler
 
 A class that processes a single `Command` or `Query`. Its primary responsibility is to contain the **Application Logic** for a specific use case. A `Handler` acts as the orchestrator of a business transaction and can coordinate between multiple repositories or domain services to ensure an operation is completed atomically.
 
 * **Should Contain:**
-  * Orchestration logic that coordinates calls to domain models and repositories.
+    * Orchestration logic that coordinates calls to domain models and repositories.
 * **Should NOT Contain:**
-  * Flutter-specific code.
-  * Direct API/database calls.
-  * Logic for multiple, unrelated use cases.
+    * Flutter-specific code.
+    * Direct API/database calls.
+    * Logic for multiple, unrelated use cases.
 
 #### Repository
 
 A class that implements a contract (an abstract class) defined in the Business Layer. Its primary responsibility is to abstract the data source and contain **Infrastructure Logic**. Repositories are not just simple data-fetchers; they are responsible for crucial tasks like mapping data transfer objects (DTOs) from an API into rich Domain Models and implementing caching strategies to improve performance.
 
 * **Should Contain:**
-  * Data fetching, caching, serialization, and mapping logic.
+    * Data fetching, caching, serialization, and mapping logic.
 * **Should NOT Contain:**
-  * Business rules or application-specific orchestration logic.
+    * Business rules or application-specific orchestration logic.
 
 #### ViewModel
 
 The "brain" of a specific widget or screen. Its primary responsibility is to hold and manage UI state and contain **Presentation Logic**. The `ViewModel` acts as an adapter, taking generic data from the Business Layer and transforming it into a specific `State` object tailored to the needs of its View. It holds presentation state (e.g., `isLoading`, `errorMessage`), not just raw data.
 
 * **Should Contain:**
-  * Logic to format data for display.
-  * Handling of user input events.
-  * Sending `Commands` or `Queries` to the `Mediator`.
+    * Logic to format data for display.
+    * Handling of user input events.
+    * Sending `Commands` or `Queries` to the `Mediator`.
 * **Should NOT Contain:**
-  * Core business rules.
-  * Direct knowledge of infrastructure (like API clients).
+    * Core business rules.
+    * Direct knowledge of infrastructure (like API clients).
 
 #### View
 
 A Flutter widget. Its primary responsibility is to render the UI based on the `ViewModel`'s state and to forward user gestures to the `ViewModel`. A "dumb" view does not mean a static one; it is responsible for managing local, ephemeral state that has no business significance.
 
 * **Should Contain:**
-  * **View Logic** such as layout, styling, and animations.
-  * Management of `AnimationController`s, `TextEditingController`s, and `FocusNode`s.
+    * **View Logic** such as layout, styling, and animations.
+    * Management of `AnimationController`s, `TextEditingController`s, and `FocusNode`s.
 * **Should NOT Contain:**
-  * Business, application, or presentation logic.
-  * Direct calls to the `Mediator` or repositories.
+    * Business, application, or presentation logic.
+    * Direct calls to the `Mediator` or repositories.
 
 ### Guiding Principles
 
@@ -134,20 +136,32 @@ The `Mediator` is the central bus that routes messages (`Commands` and `Queries`
 
 ### Tracing a Command (Write Operation)
 
-1. **View:** A user taps a "Save" button. The `onPressed` callback calls a method on the `ViewModel`, e.g., `viewModel.saveProjectName('New Name')`.
-2. **ViewModel:** The method creates a command object (`UpdateProjectNameCommand(...)`) and sends it to the central dispatcher: `mediator.run(command)`.
-3. **Mediator:** It looks up the registered handler for `UpdateProjectNameCommand`.
-4. **CommandHandler:** The handler executes the Application Logic, calling the `IProjectRepository` to persist the change.
-5. **Repository:** The concrete implementation in the Infrastructure Layer makes the API call to save the data.
+1.  **View:** A user taps a "Save" button. The `onPressed` callback calls a method on the `ViewModel`, e.g., `viewModel.saveProjectName('New Name')`.
+2.  **ViewModel:** The method creates a command object (`UpdateProjectNameCommand(...)`) and sends it to the central dispatcher: `mediator.run(command)`.
+3.  **Mediator:** It looks up the registered handler for `UpdateProjectNameCommand`.
+4.  **CommandHandler:** The handler executes the Application Logic, calling the `IProjectRepository` to persist the change.
+5.  **Repository:** The concrete implementation in the Infrastructure Layer makes the API call to save the data.
 
-### Tracing a Query (Read Operation)
+### Tracing a Query (Read & Watch Operations)
 
-1. **ViewModel:** During its initialization, it needs to fetch user data. It creates a query object (`GetUserByIdQuery(...)`) and sends it: `mediator.read(query)`.
-2. **Mediator:** It finds the registered `GetUserByIdQueryHandler`.
-3. **QueryHandler:** The handler executes the logic, calling `IUserRepository.getUserById(...)`.
-4. **Repository:** The implementation fetches data from the data source (e.g., a database), maps it to a `User` domain model, and returns it.
-5. **ViewModel:** The data flows back through the `Mediator`. The `ViewModel` receives the `User` model, updates its internal state, and notifies its listeners.
-6. **View:** The widget listening to the `ViewModel` rebuilds to display the user's data.
+#### One-Time Read (`ReadQuery`)
+
+1.  **ViewModel:** During its initialization, it needs to fetch user data. It creates a query object (`GetUserByIdQuery(...)`) and sends it: `mediator.read(query)`.
+2.  **Mediator:** It finds the registered `GetUserByIdQueryHandler`.
+3.  **QueryHandler:** The handler executes the logic, calling `IUserRepository.getUserById(...)`.
+4.  **Repository:** The implementation fetches data from the data source (e.g., an HTTP endpoint), maps it to a `User` domain model, and returns it as a `Future`.
+5.  **ViewModel:** The data `Future` completes. The `ViewModel` receives the `User` model, updates its internal state, and notifies its listeners.
+6.  **View:** The widget listening to the `ViewModel` rebuilds to display the user's data.
+
+#### Continuous Stream (`WatchQuery`)
+
+1.  **ViewModel:** On initialization, it needs to subscribe to live data. It creates a query (`WatchProjectStatusQuery(...)`) and subscribes using `viewModel.watch(query, (streamState) { ... })`.
+2.  **Mediator:** It finds the registered `WatchProjectStatusQueryHandler`.
+3.  **QueryHandler:** The handler executes, calling `IProjectRepository.watchStatus(...)`, which returns a `Stream`.
+4.  **Repository:** The implementation connects to a reactive data source (e.g., a Firestore collection stream, a WebSocket) and returns a `Stream` of updates.
+5.  **Data Flow:** The repository's `Stream` begins emitting values. Each new value or error flows back through the handler and mediator to the `ViewModel`.
+6.  **ViewModel:** The callback passed to `viewModel.watch` is executed for every emission. It receives a `StreamState` (`Loading`, `Data`, or `Error`), updates its own state object accordingly, and notifies listeners.
+7.  **View:** The widget listening to the `ViewModel` rebuilds automatically every time the state is updated, ensuring the UI is always in sync with the latest data. The stream remains active, continuously "hydrating" the UI.
 
 ## Architectural Trade-offs
 
