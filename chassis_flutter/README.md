@@ -53,26 +53,31 @@ class ShowGreetingSuccess implements GreetingEvent {
 
 ### 2\. Create the ViewModel
 
-The `ViewModel` connects to the `Mediator` to fetch data and manages the `GreetingState`. It exposes methods for the UI to call, like `fetchGreeting()`.
+The `ViewModel` connects to the `Mediator` to watch data streams and manages the `GreetingState`. It automatically subscribes to data updates when initialized.
 
 ```dart
 // lib/features/greeting/greeting_view_model.dart
 class GreetingViewModel extends ViewModel<GreetingState, GreetingEvent> {
-  GreetingViewModel(Mediator mediator) : super(mediator, const GreetingState());
+  GreetingViewModel(Mediator mediator) : super(mediator, const GreetingState()) {
+    _subscribeToGreetings();
+  }
 
-  Future<void> fetchGreeting() async {
-    setState(state.copyWith(isLoading: true));
-    final result = await read(const GetGreetingQuery()); // From 'chassis' core
-
-    result.when(
-      success: (greeting) {
-        setState(state.copyWith(isLoading: false, message: greeting));
-        sendEvent(ShowGreetingSuccess('Greeting loaded successfully!'));
-      },
-      failure: (error) {
-        setState(state.copyWith(isLoading: false, error: error.toString()));
-      },
-    );
+  void _subscribeToGreetings() {
+    // Watch the greeting stream for real-time updates
+    watch(const WatchGreetingsQuery(), (streamState) {
+      streamState.when(
+        loading: () {
+          setState(state.copyWith(isLoading: true));
+        },
+        data: (greeting) {
+          setState(state.copyWith(isLoading: false, message: greeting));
+          sendEvent(ShowGreetingSuccess('Greeting updated!'));
+        },
+        error: (error, _) {
+          setState(state.copyWith(isLoading: false, error: error.toString()));
+        },
+      );
+    });
   }
 }
 ```
@@ -134,11 +139,6 @@ class _GreetingScreenState extends State<GreetingScreen> with ConsumerMixin {
             ? const CircularProgressIndicator()
             : Text(state.message, style: Theme.of(context).textTheme.headlineMedium),
       ),
-      floatingActionButton: FloatingActionButton(
-        // `read` calls a method without subscribing to state changes.
-        onPressed: () => context.read<GreetingViewModel>().fetchGreeting(),
-        child: const Icon(Icons.refresh),
-      ),
     );
   }
 }
@@ -150,11 +150,11 @@ class _GreetingScreenState extends State<GreetingScreen> with ConsumerMixin {
 
 The `chassis` and `chassis_flutter` packages work together to create a clean separation of concerns:
 
-1. **View** (`GreetingScreen`) calls `fetchGreeting()` on the `ViewModel`.
-2. **ViewModel** dispatches a `GetGreetingQuery` to the `Mediator`.
-3. **Mediator** finds the corresponding `GetGreetingQueryHandler` in your core `chassis` layer.
-4. **Handler** executes the business logic and returns the result.
-5. **ViewModel** receives the result, updates its `GreetingState`, and the **View** automatically rebuilds to show the new message.
+1. **ViewModel** automatically subscribes to a `WatchGreetingsQuery` stream when initialized.
+2. **Mediator** finds the corresponding `WatchGreetingsQueryHandler` in your core `chassis` layer.
+3. **Handler** executes the business logic and returns a stream of results.
+4. **ViewModel** receives stream updates, updates its `GreetingState`, and the **View** automatically rebuilds to show new messages.
+5. **View** (`GreetingScreen`) displays the current state and reacts to events like success notifications.
 
 ## Next Steps
 

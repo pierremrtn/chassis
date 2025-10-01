@@ -17,8 +17,8 @@ You'll create a simple screen that subscribes to a stream of greeting messages. 
 Chassis is built on the principle of **Command-Query Separation (CQS)**, which organizes your logic into two distinct categories:
 
 * **Queries**: These are requests to **read data**. They are side-effect-free and do not alter the state of the application. Chassis has two types:
-    * `ReadQuery`: Asks for a snapshot of data at a single point in time (`Future`).
-    * `WatchQuery`: Subscribes to a stream of data that updates over time (`Stream`). This is the key to reactive UIs.
+    * `WatchQuery`: Subscribes to a stream of data that updates over time (`Stream`). This is the key to reactive UIs and should be your default choice.
+    * `ReadQuery`: Asks for a snapshot of data at a single point in time (`Future`). Use for one-time operations like generating reports.
 * **Commands**: These are requests to **change state or perform an action**. Think of them as giving an order, like saving data or logging a user in.
 
 This separation is the key to creating predictable, scalable, and highly testable applications.
@@ -332,4 +332,4 @@ You've successfully built a reactive feature following the Chassis architecture\
 
 The UI is now directly "hydrated" by the data layer. Any new data emitted from the repository's stream will automatically flow through the handler and ViewModel to update the UI, with no manual refresh needed.
 
-To learn more, dive into the full documentation to explore commands, one-time reads with `ReadQuery`, and more powerful features.
+To learn more, dive into the full documentation to explore commands, one-time reads with `ReadQuery` for specific use cases, and more powerful features.

@@ -68,9 +68,9 @@ A Query is an immutable message describing the data you want.
 // domain/use_cases/get_greeting_query.dart
 import 'package:chassis/chassis.dart';
 
-// Implement ReadQuery for one-time data fetches, or WatchQuery for streams.
-class GetGreetingQuery implements ReadQuery<String> {
-  const GetGreetingQuery();
+// Implement WatchQuery for reactive data streams that update over time.
+class WatchGreetingsQuery implements WatchQuery<String> {
+  const WatchGreetingsQuery();
 }
 ```
 
@@ -86,17 +86,17 @@ import 'package:chassis/chassis.dart';
 // ReadQuery -> ReadHandler
 // WatchQuery -> WatchHandler
 // Command -> CommandHandler
-class GetGreetingQueryHandler implements ReadHandler<GetGreetingQuery, String> {
+class WatchGreetingsQueryHandler implements WatchHandler<WatchGreetingsQuery, String> {
   final IGreetingRepository greetingRepository;
   
-  GetGreetingQueryHandler({
+  WatchGreetingsQueryHandler({
     required this.greetingRepository,
   });
 
   @override
-  Future<String> read(GetGreetingQuery query) {
+  Stream<String> watch(WatchGreetingsQuery query) {
     // Your business logic lives here
-    return greetingRepository.getGreeting();
+    return greetingRepository.getGreetingStream();
   }
 }
 ```
@@ -111,12 +111,13 @@ final mediator = Mediator();
 final greetingRepository = GreetingRepository();
 
 mediator.registerQueryHandler(
-  GetGreetingQueryHandler(greetingRepository: greetingRepository),
+  WatchGreetingsQueryHandler(greetingRepository: greetingRepository),
 );
 
 // From your application layer
-final String greeting = await mediator.read(const GetGreetingQuery());
-print(greeting); // Outputs the result from your repository
+final subscription = mediator.watch(const WatchGreetingsQuery()).listen((greeting) {
+  print(greeting); // Outputs each greeting from your repository stream
+});
 ```
 
 -----

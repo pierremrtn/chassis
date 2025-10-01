@@ -33,15 +33,15 @@ Commands represent an intent to **change the state** of the application. Their n
 
 ## Queries
 
-Queries represent a request to **read data** from the application without modifying its state. Chassis distinguishes between two types of queries: one-time fetches (`ReadQuery`) and continuous streams (`WatchQuery`).
+Queries represent a request to **read data** from the application without modifying its state. Chassis distinguishes between two types of queries: continuous streams (`WatchQuery`) and one-time fetches (`ReadQuery`).
 
-### `ReadQuery` Queries (One-Time Fetch)
+### `WatchQuery` Queries (Continuous Streams) - **Recommended Default**
 
-These queries ask for a snapshot of the system's state at a single point in time and return a `Future`.
+These queries subscribe to a stream of data that updates over time and return a `Stream`. This should be your default choice for UI data.
 
-#### Pattern: `Read[Resource]By[Criteria]Query`
+#### Pattern: `Watch[Resource]By[Criteria]Query`
 
-* **Verb:** **`Read`** is the standard and preferred verb. Use **`Find`** as an alternative when the result is not guaranteed to exist.
+* **Verb:** **`Watch`** is the standard and preferred verb for continuous streams. Use **`Observe`** as an alternative when the verb "watch" doesn't fit naturally.
 * **Resource:** The entity or Data Transfer Object (DTO) being retrieved.
   * _Examples:_ `Project`, `User`, `OrderSummary`, `ActiveUsers`.
 * **Criteria (Optional):** Use `By` to specify the filter or condition for the query. Use `All` for fetching collections without a specific filter.
@@ -50,28 +50,29 @@ These queries ask for a snapshot of the system's state at a single point in time
 
 #### Examples:
 
-* `ReadProjectByIdQuery`
-* `ReadAllUsersQuery`
-* `FindCustomerByEmailQuery`
-* `ReadOrderSummaryQuery`
+* `WatchProjectByIdQuery`
+* `WatchAllUsersQuery`
+* `WatchCustomerByEmailQuery`
+* `WatchOrderSummaryQuery`
 
-### `WatchQuery` Queries (Continuous Stream)
+### `ReadQuery` Queries (One-Time Fetch) - **Specific Use Cases**
 
-These queries subscribe to a data source and return a `Stream` of updates over time.
+These queries ask for a snapshot of the system's state at a single point in time and return a `Future`. Use for one-time operations like generating reports or performing calculations.
 
-#### Pattern: `Watch[Resource]By[Criteria]Query`
+#### Pattern: `Read[Resource]By[Criteria]Query`
 
-* **Verb:** **`Watch`** is the standard verb.
-* **Resource:** The entity or DTO being observed.
-* **Criteria (Optional):** Specifies what is being watched.
+* **Verb:** **`Read`** is the standard and preferred verb. Use **`Find`** as an alternative when the result is not guaranteed to exist.
+* **Resource:** The entity or DTO being retrieved.
+* **Criteria (Optional):** Specifies the filter or condition for the query.
 * **Suffix:** Always end the class name with `Query`.
 
 #### Examples:
 
-* `WatchProjectByIdQuery`
-* `WatchAllActiveTicketsQuery`
-* `WatchOrderStatusQuery`
-
+* `ReadProjectByIdQuery`
+* `ReadAllUsersQuery`
+* `FindCustomerByEmailQuery`
+* `ReadOrderSummaryQuery`
+ 
 ***
 
 ## Handlers

@@ -17,6 +17,7 @@ Think of it like the chassis of a car: it provides a rigid, reliable frame so yo
 Good architecture shouldn't rely on developer discipline alone. Chassis is designed around a few core principles to make best practices the path of least resistance.
 
 * 🏛️ **Structure by Design:** Chassis enforces a clear separation of concerns through its defined data flow. This makes it intuitive to write clean, organized code that is easy for anyone on the team to navigate.
+* ⚡ **Reactive by Default:** Built around streaming data with `WatchQuery` to create UIs that are "live" and automatically update when your underlying data changes.
 * 🧩 **Rigid Structure, Flexible Logic:** The overall flow of data is consistent and predictable. However, your actual business logic within each component remains isolated, flexible, and easy to change.
 * ✅ **Testability First:** Every layer, from ViewModels to business logic Handlers, is decoupled by design, making it simple to mock dependencies and test any part of your application in isolation.
 * 🧑‍💻 **Developer Experience Focused:** We aim for minimal boilerplate and a clean, intuitive API. The goal is to make building on a solid architecture feel productive, not restrictive.
@@ -43,8 +44,8 @@ BLoC and Riverpod are primarily **tools for state management**. Chassis is an **
 
 | Aspect                  | BLoC / Riverpod                                                              | Chassis                                                                        |
 | ----------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| **Primary Goal**        | Efficiently manage state and rebuild the UI when it changes.                 | Enforce a consistent, scalable, and decoupled application structure.           |
-| **Where Logic Lives**   | **Flexible.** Logic can live in a `Bloc`, service, or repository.            | **Prescriptive.** Business logic **must** live in dedicated `Handler` classes. |
+| **Primary Goal** | Efficiently manage state and rebuild the UI when it changes.                 | Enforce a consistent, scalable, and decoupled application structure.           |
+| **Where Logic Lives** | **Flexible.** Logic can live in a `Bloc`, service, or repository.            | **Prescriptive.** Business logic **must** live in dedicated `Handler` classes. |
 | **Architectural Style** | **High Freedom.** Provides powerful primitives to design your own structure. | **Low Freedom.** Provides a strict structure in exchange for consistency.      |
 
 ### When to Choose Chassis
