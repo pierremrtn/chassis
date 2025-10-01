@@ -126,12 +126,13 @@ class AssignTaskCommand extends Command<void> {
   const AssignTaskCommand(this.projectId, this.taskId, this.userId);
 }
 
-// Queries (read operations)
-class ReadProjectByIdQuery implements ReadQuery<Project> {
+// Watch Queries (stream operations)
+class WatchProjectByIdQuery implements WatchQuery<Project> {
   final String projectId;
-  const ReadProjectByIdQuery(this.projectId);
+  const WatchProjectByIdQuery(this.projectId);
 }
 
+// Read Queries (read operations)
 class SearchProjectsQuery implements ReadQuery<List<Project>> {
   final String searchTerm;
   const SearchProjectsQuery(this.searchTerm);
@@ -140,147 +141,13 @@ class SearchProjectsQuery implements ReadQuery<List<Project>> {
 
 Each operation is now a first-class object. This provides several benefits. The operations are self-documenting—you can see exactly what data each operation requires. The operations are discoverable—your IDE can show you all commands and queries at once. The operations can be logged, traced, and analyzed because they flow through a single mediator.
 
-But Chassis extends CQRS with an additional distinction that is critical for Flutter applications: the difference between one-time reads and continuous subscriptions.
+Chassis extends the basic CQRS pattern with an additional distinction critical for Flutter applications. Dart provides two fundamental asynchronous types: Future represents a single value that arrives at some point, while Stream represents a sequence of values delivered over time. Traditional CQRS treats all queries uniformly, but Flutter applications require explicit handling of these temporal patterns.
 
-#### ReadQuery vs WatchQuery: Making Temporal Semantics Explicit
+Chassis separates queries into ReadQuery for point-in-time snapshots and WatchQuery for continuous observation. A ReadQuery returns Future and completes after providing a single response. A WatchQuery returns Stream and continues emitting updates as data changes. This separation makes temporal semantics explicit through the type system.
 
-Dart provides two fundamental types for asynchronous operations: `Future` represents a single value that will arrive at some point, and `Stream` represents a sequence of values delivered over time. Developers understand this distinction intuitively when writing implementation code, but traditional CQRS does not enforce it at the architectural level.
+The choice between query types affects user experience fundamentally. Modern users expect interfaces that stay current without manual refresh. A project detail screen watching for updates reflects changes made by other team members automatically. A report generation feature reading a snapshot captures data at a specific moment. 
 
-Chassis separates read operations into two distinct query types that make temporal semantics explicit through the type system: `ReadQuery` for point-in-time snapshots and `WatchQuery` for continuous observation.
-
-##### Understanding the Distinction
-
-A **ReadQuery** represents a request for the current state of your data. When you execute a read query, you receive a single response that captures what the system knows at that moment. The operation completes, returns its result, and finishes:
-
-```dart
-class ReadProjectByIdQuery implements ReadQuery<Project> {
-  final String projectId;
-  const ReadProjectByIdQuery(this.projectId);
-}
-
-class ReadProjectByIdQueryHandler 
-    implements ReadHandler<ReadProjectByIdQuery, Project> {
-  final IProjectRepository _repository;
-  
-  ReadProjectByIdQueryHandler(this._repository);
-  
-  @override
-  Future<Project> read(ReadProjectByIdQuery query) {
-    return _repository.getProjectById(query.projectId);
-  }
-}
-```
-
-A **WatchQuery** represents a subscription to observe data as it changes over time. When you execute a watch query, you receive a stream of updates. Each time the underlying data changes, your application receives a new value. The operation remains active, continuously providing fresh data until you explicitly cancel the subscription:
-
-```dart
-class WatchProjectByIdQuery implements WatchQuery<Project> {
-  final String projectId;
-  const WatchProjectByIdQuery(this.projectId);
-}
-
-class WatchProjectByIdQueryHandler 
-    implements WatchHandler<WatchProjectByIdQuery, Project> {
-  final IProjectRepository _repository;
-  
-  WatchProjectByIdQueryHandler(this._repository);
-  
-  @override
-  Stream<Project> watch(WatchProjectByIdQuery query) {
-    return _repository.watchProjectById(query.projectId);
-  }
-}
-```
-
-This separation makes three things explicit that are otherwise implicit: what temporal pattern a query supports, whether the underlying data source can provide continuous updates, and what lifecycle semantics apply to the operation.
-
-##### Why Separate Query Types Matter
-
-The separation addresses specific architectural challenges that emerged during practical Flutter development:
-
-**Capability Discoverability:** When handlers can implement either or both temporal patterns, developers calling a query cannot determine from the type whether watch operations are supported. They must inspect handler implementations or consult documentation. Separate query types make capabilities immediately visible through type signatures and IDE autocomplete. If a `WatchProjectByIdQuery` exists, watching is supported. If only `ReadProjectByIdQuery` exists, it is not.
-
-**Data Source Constraints:** Not all data sources support continuous subscriptions. Many REST APIs provide only request-response patterns without WebSocket or streaming capabilities. Requiring handlers to implement both read and watch methods creates pressure to provide stub implementations that throw runtime exceptions. Separate query types allow handlers to implement only what makes sense for their underlying data source. The type system prevents invalid operations at compile time rather than failing at runtime.
-
-**Testing Complexity:** When handlers support multiple temporal patterns, tests must verify behavior along both dimensions. Test fixtures must support both synchronous snapshots and asynchronous streams. Handlers focused on a single operation require simpler test setups appropriate to their specific temporal pattern. A read handler needs only mock data for a single response. A watch handler needs mock streams and verification of subscription lifecycle.
-
-**Implementation Clarity:** Separating queries by temporal semantics makes handler responsibilities explicit. A `ReadHandler` retrieves current state. A `WatchHandler` establishes and maintains a subscription. Each handler has a clear, focused responsibility rather than handling multiple temporal patterns with conditional logic.
-
-##### Choosing Between ReadQuery and WatchQuery
-
-The decision between query types depends on whether your use case requires awareness of data changes:
-
-**Use WatchQuery when:**
-- The UI should reflect changes made by other users or processes
-- Data is inherently real-time (chat messages, notifications, live dashboards)
-- Multiple screens display the same data and should stay synchronized
-- Your backend naturally supports streaming (WebSockets, Server-Sent Events, database change streams)
-- Users actively monitor data that changes frequently
-
-**Use ReadQuery when:**
-- You need data once for a specific operation (generating reports, performing calculations)
-- Data changes infrequently or is static (configuration, feature flags, historical records)
-- You're working with REST APIs that don't support streaming
-- Performance considerations limit the number of active subscriptions
-- The data is user-specific and only they can modify it
-
-Consider a user profile screen. Profile details should reflect any changes made by the user or synchronized from a server. A `WatchUserProfileQuery` allows your interface to automatically update when profile data changes. By contrast, generating a PDF export of the profile requires only the current state. A `ReadUserProfileQuery` provides exactly what you need without the overhead of maintaining an active subscription.
-
-##### Practical Implications for Repository Design
-
-This architectural decision shapes how you design repository interfaces:
-
-```dart
-abstract class IProjectRepository {
-  // Support for ReadQuery
-  Future<Project> getProjectById(String id);
-  
-  // Support for WatchQuery
-  Stream<Project> watchProjectById(String id);
-  
-  // Other operations...
-}
-```
-
-Not every repository method needs both variants. If your data source is REST-based without streaming support, implement only the `Future` methods. If your data source is Firebase or another reactive database, you might implement both or even favor streams as the primary interface.
-
-The query type separation allows your architecture to match your infrastructure capabilities. You are not forced to fake streaming support for REST APIs, and you are not prevented from leveraging reactive data sources when available.
-
-##### Integration with ViewModels
-
-The temporal distinction becomes particularly valuable in ViewModels, where the difference between one-time data fetching and continuous synchronization affects user experience:
-
-```dart
-class ProjectDetailViewModel extends ViewModel<ProjectDetailState, ProjectDetailEvent> {
-  ProjectDetailViewModel(Mediator mediator, this.projectId) 
-      : super(mediator, ProjectDetailState(projectState: StreamState.loading())) {
-    // Continuous synchronization - UI stays current automatically
-    watch(WatchProjectByIdQuery(projectId), (streamState) {
-      setState(state.copyWith(projectState: streamState));
-    });
-  }
-  
-  Future<void> generateReport() async {
-    // One-time data fetch - report uses snapshot at generation time
-    final result = await read(ReadProjectStatisticsQuery(projectId));
-    
-    result.when(
-      data: (statistics) => _createPdfReport(statistics),
-      error: (error, _) => sendEvent(ReportGenerationFailed(error.toString())),
-    );
-  }
-}
-```
-
-The code clearly expresses intent. The watch query establishes continuous synchronization. The read query performs a one-time fetch. Both are appropriate for their specific use cases.
-
-##### The Default Choice
-
-While both query types have legitimate use cases, **watch queries should be your default choice for data displayed in the UI**. Modern users expect interfaces that stay current without manual refreshes. The "refresh hell" problem—where users see stale data because refresh logic is incomplete or forgotten—disappears when your architecture defaults to continuous synchronization.
-
-Use read queries deliberately when you have specific reasons: one-time operations, data sources that don't support streaming, performance constraints, or data that genuinely doesn't change. The asymmetry is intentional. Reactive UIs that stay synchronized provide better user experience than interfaces that require manual refresh, and the architecture should make the better choice the easier choice.
-
-This default recommendation assumes your infrastructure supports streaming. If you're building on REST APIs without WebSocket support, you may need to rely more heavily on read queries with explicit refresh triggers. The architecture accommodates both approaches, but favors reactivity when feasible.
+We will see how ViewModels use these query types when we examine the Presentation layer.
 
 ### The Mediator: Decoupling Senders from Receivers
 
@@ -767,6 +634,35 @@ The callback receives a `StreamState<T>`, which can be in one of three states: l
 
 The `watch` method returns a `StreamSubscription` that is automatically cancelled when the ViewModel is disposed. You typically do not need to manage this subscription manually, but if you need to cancel a subscription early, you can store the returned subscription and call `cancel()` on it.
 
+The distinction between read and watch queries determines how your ViewModel interacts with data. Watch queries establish continuous synchronization, automatically updating your UI as data changes. Read queries retrieve point-in-time snapshots for one-time operations. Choosing the appropriate pattern depends on whether the UI should reflect subsequent changes.
+
+**Use watch queries as your default for data displayed in the UI.** Modern users expect interfaces that stay current without manual refresh. The project detail screen uses a watch query specifically because project data might change through actions by other team members, and the UI should reflect those changes automatically:
+
+```dart
+watch(WatchProjectByIdQuery(projectId), (streamState) {
+  setState(state.copyWith(projectState: streamState));
+});
+```
+
+The subscription begins during ViewModel construction, ensuring data loads before the first build. Updates arrive automatically whenever the underlying project changes, keeping the UI synchronized without additional logic.
+
+**Use read queries deliberately for operations that need data once.** Consider generating a PDF report from project statistics. The report captures data at a specific moment and should not update dynamically as statistics change:
+
+```dart
+Future<void> generateReport() async {
+  final result = await read(ReadProjectStatisticsQuery(projectId));
+  
+  result.when(
+    data: (statistics) => _createPdfReport(statistics),
+    error: (error, _) => sendEvent(ReportGenerationFailed(error.toString())),
+  );
+}
+```
+
+The read operation retrieves current statistics, generates the report, and completes. If statistics change while the user reviews the PDF, the report remains static because it captured a point-in-time snapshot.
+
+Read queries also make sense when working with REST APIs that lack streaming support, when performing calculations on retrieved data, or when data changes so infrequently that manual refresh proves adequate. But for typical UI data display, favor watch queries because they provide better user experience by eliminating the "refresh hell" problem where users see stale data.
+
 #### The StreamState Type
 
 The `StreamState<T>` type warrants special attention because it appears throughout reactive ViewModels. It represents the state of an asynchronous data stream:
@@ -1049,6 +945,7 @@ void main() {
 ```
 
 This registration code is verbose, but it serves an important purpose. It is the only place in your entire application where concrete implementations are wired to interfaces. Everything else in your codebase depends on abstractions. This single point of configuration makes it trivial to swap implementations for testing or to change technology choices.
+
 
 ## The Architecture Under Pressure: Evolution Scenarios
 
