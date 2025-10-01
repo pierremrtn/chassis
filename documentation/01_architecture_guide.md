@@ -143,9 +143,7 @@ Each operation is now a first-class object. This provides several benefits. The 
 
 Chassis extends the basic CQRS pattern with an additional distinction critical for Flutter applications. Dart provides two fundamental asynchronous types: Future represents a single value that arrives at some point, while Stream represents a sequence of values delivered over time. Traditional CQRS treats all queries uniformly, but Flutter applications require explicit handling of these temporal patterns.
 
-Chassis separates queries into ReadQuery for point-in-time snapshots and WatchQuery for continuous observation. A ReadQuery returns Future and completes after providing a single response. A WatchQuery returns Stream and continues emitting updates as data changes. This separation makes temporal semantics explicit through the type system.
-
-The choice between query types affects user experience fundamentally. Modern users expect interfaces that stay current without manual refresh. A project detail screen watching for updates reflects changes made by other team members automatically. A report generation feature reading a snapshot captures data at a specific moment. 
+Chassis separates queries into ReadQuery for point-in-time snapshots and WatchQuery for continuous observation. A ReadQuery returns Future and completes after providing a single response. A WatchQuery returns Stream and continues emitting updates as data changes.
 
 We will see how ViewModels use these query types when we examine the Presentation layer.
 
@@ -441,32 +439,32 @@ abstract class ViewModel<TState, TEvent> extends ChangeNotifier {
   
   // Protected methods available to subclasses:
   
+  // Updates the current state and notifies listeners (triggers widget rebuilds)
   @protected
   void setState(TState newState);
-  // Updates the current state and notifies listeners (triggers widget rebuilds)
   
+  // Emits a one-time event to the event stream
   @protected
   void sendEvent(TEvent event);
-  // Emits a one-time event to the event stream
   
+  // Executes a command through the mediator, returns success or error
   @protected
   Future<AsyncResult<T>> run<T>(Command<T> command);
-  // Executes a command through the mediator, returns success or error
   
+  // Executes a one-time query through the mediator, returns current data snapshot
   @protected
   Future<AsyncResult<T>> read<T>(ReadQuery<T> query);
-  // Executes a one-time query through the mediator, returns current data snapshot
   
+  // Subscribes to continuous data updates, automatically cancelled on dispose
   @protected
   StreamSubscription<StreamState<T>> watch<T>(
     WatchQuery<T> query,
     void Function(StreamState<T>) onData,
   );
-  // Subscribes to continuous data updates, automatically cancelled on dispose
   
+  // Cleanup method called by Flutter, cancels subscriptions and closes streams
   @override
   void dispose();
-  // Cleanup method called by Flutter, cancels subscriptions and closes streams
 }
 ```
 
@@ -494,23 +492,7 @@ class ProjectDetailState {
 
 State classes should be immutable. Every state modification creates a new state object rather than mutating the existing one. This immutability enables time-travel debugging, makes state changes explicit and traceable, and prevents subtle bugs from shared mutable state.
 
-State classes should implement `copyWith` methods to enable efficient updates of individual fields:
-
-```dart
-ProjectDetailState copyWith({
-  StreamState<Project>? projectState,
-  bool? isUpdating,
-  String? Function()? updateError,
-}) {
-  return ProjectDetailState(
-    projectState: projectState ?? this.projectState,
-    isUpdating: isUpdating ?? this.isUpdating,
-    updateError: updateError != null ? updateError() : this.updateError,
-  );
-}
-```
-
-Notice the nullable function parameter for `updateError`. This pattern allows you to set a field to null (by passing `() => null`) or leave it unchanged (by passing `null` for the parameter itself). This distinguishes between "set to null" and "don't change."
+State classes should implement `copyWith` methods to enable efficient updates of individual fields.
 
 The `setState` method triggers widget rebuilds for any widgets watching this ViewModel. This integrates with Flutter's standard ChangeNotifier pattern, making ViewModels compatible with Provider, Consumer widgets, and other state management tools built on ChangeNotifier.
 
@@ -594,11 +576,11 @@ sealed class AsyncResult<T> {
   const AsyncResult();
   
   factory AsyncResult.data(T data) = AsyncResultData<T>;
-  factory AsyncResult.error(Object error, StackTrace stackTrace) = AsyncResultError<T>;
+  factory AsyncResult.error(Object error) = AsyncResultError<T>;
   
   TResult when<TResult>({
     required TResult Function(T data) data,
-    required TResult Function(Object error, StackTrace stackTrace) error,
+    required TResult Function(Object error) error,
   });
   
   T? dataOrNull();
@@ -654,7 +636,7 @@ Future<void> generateReport() async {
   
   result.when(
     data: (statistics) => _createPdfReport(statistics),
-    error: (error, _) => sendEvent(ReportGenerationFailed(error.toString())),
+    error: (error) => sendEvent(ReportGenerationFailed(error.toString())),
   );
 }
 ```
@@ -692,7 +674,7 @@ Your UI code uses the `when` method to explicitly handle each state:
 ```dart
 state.projectState.when(
   loading: () => Center(child: CircularProgressIndicator()),
-  error: (error, _) => Center(child: Text('Error: $error')),
+  error: (error) => Center(child: Text('Error: $error')),
   data: (project) => ProjectContent(project: project),
 )
 ```
@@ -860,6 +842,7 @@ class ProjectDetailScreen extends StatefulWidget {
   State<ProjectDetailScreen> createState() => _ProjectDetailScreenState();
 }
 
+// Notice the consumer mixin that provides `onEvent` method
 class _ProjectDetailScreenState extends State<ProjectDetailScreen> 
     with ConsumerMixin {
   
@@ -913,9 +896,12 @@ The view is a pure rendering function. It observes state from the ViewModel and 
 The final step is registering all handlers with the mediator. This typically happens at application startup:
 
 ```dart
+
+// you can also uses dependency injection packages like get_it
+final mediator = Mediator();
+
 // main.dart
 void main() {
-  final mediator = Mediator();
   
   // Infrastructure dependencies
   final apiClient = ApiClient(baseUrl: 'https://api.example.com');
@@ -940,239 +926,15 @@ void main() {
   
   // Additional handlers would be registered here...
   
-  runApp(MyApp(mediator: mediator));
+  runApp(MyApp());
 }
 ```
 
 This registration code is verbose, but it serves an important purpose. It is the only place in your entire application where concrete implementations are wired to interfaces. Everything else in your codebase depends on abstractions. This single point of configuration makes it trivial to swap implementations for testing or to change technology choices.
 
+## Testing with Chassis
 
-## The Architecture Under Pressure: Evolution Scenarios
-
-A good architecture is not just clean—it enables change. Let us examine how the Chassis architecture handles common evolution scenarios that challenge poorly structured applications.
-
-### Scenario One: Adding Comprehensive Caching
-
-Your application is making too many API calls, and you need to implement an intelligent caching strategy. In a traditional architecture, this change would require modifying every place where data is fetched. With Chassis, the change is localized to the repository:
-
-```dart
-class ProjectRepositoryImpl implements IProjectRepository {
-  final ApiClient _apiClient;
-  final CacheManager _cache;
-  
-  @override
-  Future<Project> getProjectById(String id) async {
-    return _cache.getOrFetch(
-      key: 'project_$id',
-      ttl: Duration(minutes: 5),
-      fetcher: () async {
-        final response = await _apiClient.get('/projects/$id');
-        return _projectFromJson(response.data);
-      },
-    );
-  }
-}
-```
-
-The handlers do not change. The ViewModels do not change. Only the infrastructure layer changes, exactly as it should be. The business logic remains stable while infrastructure details evolve.
-
-### Scenario Two: Implementing Optimistic Updates
-
-Users complain that the UI feels sluggish because they have to wait for the server to confirm changes before seeing updates. You want to implement optimistic updates where the UI changes immediately, then reverts if the server rejects the change.
-
-In a poorly structured application, this logic would be scattered across multiple ViewModels, leading to inconsistent behavior. With Chassis, you can implement this as a concern in the handler:
-
-```dart
-class UpdateProjectNameCommandHandler 
-    implements CommandHandler<UpdateProjectNameCommand, Project> {
-  final IProjectRepository _repository;
-  final IProjectCache _cache;
-  
-  @override
-  Future<Project> run(UpdateProjectNameCommand command) async {
-    // Optimistically update the cache
-    final existingProject = await _repository.getProjectById(command.projectId);
-    final optimisticProject = existingProject.copyWith(name: command.newName);
-    _cache.setOptimistic('project_${command.projectId}', optimisticProject);
-    
-    try {
-      // Attempt the real update
-      final updatedProject = existingProject.copyWith(name: command.newName);
-      final result = await _repository.updateProject(updatedProject);
-      
-      // Commit the optimistic update
-      _cache.commitOptimistic('project_${command.projectId}', result);
-      return result;
-    } catch (e) {
-      // Revert the optimistic update
-      _cache.revertOptimistic('project_${command.projectId}');
-      rethrow;
-    }
-  }
-}
-```
-
-The ViewModels that call this command do not need to know about optimistic updates. They simply dispatch the command and handle success or failure. The complexity is encapsulated in the handler where it belongs.
-
-### Scenario Three: Adding Operation Logging
-
-You need to implement comprehensive logging to understand which operations users perform, how long they take, and whether they succeed or fail. This is a cross-cutting concern that needs to apply to every operation.
-
-Because all operations flow through the mediator, you can implement this once:
-
-```dart
-class LoggingMediator extends Mediator {
-  final ILogger _logger;
-  
-  LoggingMediator(this._logger);
-  
-  @override
-  Future<T> run<T>(Command<T> command) async {
-    final stopwatch = Stopwatch()..start();
-    _logger.info('Executing command: ${command.runtimeType}');
-    
-    try {
-      final result = await super.run(command);
-      _logger.info(
-        'Command ${command.runtimeType} succeeded in ${stopwatch.elapsedMilliseconds}ms'
-      );
-      return result;
-    } catch (e) {
-      _logger.error(
-        'Command ${command.runtimeType} failed after ${stopwatch.elapsedMilliseconds}ms: $e'
-      );
-      rethrow;
-    }
-  }
-  
-  @override
-  Future<T> read<T>(ReadQuery<T> query) async {
-    final stopwatch = Stopwatch()..start();
-    _logger.info('Executing query: ${query.runtimeType}');
-    
-    try {
-      final result = await super.read(query);
-      _logger.info(
-        'Query ${query.runtimeType} succeeded in ${stopwatch.elapsedMilliseconds}ms'
-      );
-      return result;
-    } catch (e) {
-      _logger.error(
-        'Query ${query.runtimeType} failed after ${stopwatch.elapsedMilliseconds}ms: $e'
-      );
-      rethrow;
-    }
-  }
-}
-```
-
-Now every command and query is automatically logged with timing information. You did not have to modify a single handler or ViewModel. This is the power of having a single point through which all operations flow.
-
-### Scenario Four: Implementing Offline Support
-
-Your application needs to work offline, queuing operations when the network is unavailable and replaying them when connectivity is restored.
-
-This is a complex change that would be nearly impossible in a tightly coupled architecture. With Chassis, you can implement it by extending the mediator:
-
-```dart
-class OfflineMediator extends Mediator {
-  final INetworkMonitor _networkMonitor;
-  final IOperationQueue _queue;
-  
-  @override
-  Future<T> run<T>(Command<T> command) async {
-    if (_networkMonitor.isOnline) {
-      return super.run(command);
-    } else {
-      // Queue the command for later execution
-      final queuedOperation = QueuedOperation(
-        command: command,
-        timestamp: DateTime.now(),
-      );
-      await _queue.enqueue(queuedOperation);
-      
-      // Return a pending result
-      throw OfflineException('Operation queued for when network is available');
-    }
-  }
-  
-  Future<void> replayQueuedOperations() async {
-    final operations = await _queue.getAll();
-    
-    for (final operation in operations) {
-      try {
-        await super.run(operation.command);
-        await _queue.remove(operation);
-      } catch (e) {
-        // Keep it in the queue to retry later
-        print('Failed to replay operation: $e');
-      }
-    }
-  }
-}
-```
-
-Again, handlers and ViewModels do not change. The mediator handles the offline concern transparently. When the network becomes available, you call `replayQueuedOperations()` and all queued commands execute automatically.
-
-### Scenario Five: Migrating from REST to GraphQL
-
-Your team decides to migrate from a REST API to GraphQL. In a traditional architecture, this change would touch every file that makes API calls. With Chassis, only the repository implementations change:
-
-```dart
-class ProjectRepositoryImpl implements IProjectRepository {
-  final GraphQLClient _graphql; // Changed from ApiClient
-  
-  @override
-  Future<Project> getProjectById(String id) async {
-    final result = await _graphql.query(
-      QueryOptions(
-        document: gql('''
-          query GetProject(\$id: ID!) {
-            project(id: \$id) {
-              id
-              name
-              description
-              status
-              createdAt
-              completedAt
-            }
-          }
-        '''),
-        variables: {'id': id},
-      ),
-    );
-    
-    return _projectFromJson(result.data['project']);
-  }
-  
-  @override
-  Stream<Project> watchProjectById(String id) {
-    return _graphql.subscribe(
-      SubscriptionOptions(
-        document: gql('''
-          subscription WatchProject(\$id: ID!) {
-            projectUpdated(id: \$id) {
-              id
-              name
-              description
-              status
-              createdAt
-              completedAt
-            }
-          }
-        '''),
-        variables: {'id': id},
-      ),
-    ).map((result) => _projectFromJson(result.data['projectUpdated']));
-  }
-}
-```
-
-The entire migration is confined to the infrastructure layer. Your domain models, handlers, and ViewModels are completely unaffected. This is the dependency inversion principle delivering real value—you can swap infrastructure without impacting business logic.
-
-## Testing: The Architecture's True Value
-
-The real test of an architecture is not how elegant it looks, but how easy it is to write comprehensive tests. Chassis shines here because every layer can be tested in complete isolation.
+Chassis shines here because every layer can be tested in complete isolation.
 
 ### Testing Handlers: Pure Business Logic Tests
 
@@ -1574,8 +1336,6 @@ In Chassis, you would create an IncrementCountCommand, an IncrementCountCommandH
 
 The architecture's value emerges with scale. As applications grow from tens of features to hundreds, the upfront investment in structure becomes a bargain. But for small projects, simpler approaches make sense.
 
-### The Cost
-
 Chassis requires understanding multiple patterns: Clean Architecture, CQRS, the Mediator pattern, and MVVM. For developers new to these concepts, the learning curve is steep.
 
 Some operations are genuinely simple pass-throughs. A query that just fetches an entity by ID requires a query class and a handler, even though the handler might be a single line that delegates to the repository.
@@ -1607,8 +1367,6 @@ Chassis is overkill for:
 **Small Utility Apps:** Applications with limited features and straightforward logic do not benefit from layered architecture. The ceremony outweighs the value.
 
 **Content-Heavy Apps:** If your application is primarily displaying static content with minimal business logic, state management solutions like Provider or Riverpod alone are sufficient.
-
-**Inexperienced Teams:** If your team is not familiar with architectural patterns, introducing Chassis requires significant investment in training. Consider whether simpler patterns would be more productive for your context.
 
 ## Conclusion: Architecture as an Investment
 
