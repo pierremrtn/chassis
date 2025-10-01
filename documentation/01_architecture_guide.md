@@ -60,20 +60,6 @@ However, as applications grow beyond a certain threshold, several organizational
 
 These questions have answers in any well-architected application. Teams establish conventions, document patterns, conduct code reviews, and maintain consistency through discipline. This approach works successfully for many applications. Chassis provides an alternative: a framework that answers these questions through enforced structure rather than relying on team conventions.
 
-## What Chassis Provides
-
-Chassis is a complete architectural framework for Flutter applications that provides its own state management approach integrated with organizational structure. It offers a well-defined alternative architecture built on several foundational patterns:
-
-**Commands and Queries as first-class objects** represent every operation in your application as an explicit message object. Each command represents a write operation that modifies state. Each query represents a read operation that retrieves data. This makes your application's capabilities immediately discoverable and provides a formal API surface that can be analyzed, documented, and controlled.
-
-**Handlers implement single operations** with each handler responsible for executing one command or query. This enforces the single responsibility principle and makes business logic easy to locate, test, and modify. Validation logic, business rules, and orchestration concerns have a clear home in handler classes.
-
-**The Mediator provides a single pipeline** through which all operations flow. Every command execution and query request passes through the mediator, enabling uniform implementation of logging, error handling, performance monitoring, and other cross-cutting concerns. The mediator also serves as a registry of all application operations, making capabilities discoverable.
-
-**Layered architecture enforces separation** between domain logic, application logic, infrastructure implementation, and presentation concerns. Dependencies point inward, ensuring that business rules remain independent of infrastructure choices and that core logic can be tested without external dependencies.
-
-**ViewModels manage presentation state** by dispatching commands and queries through the mediator and managing UI state based on results. This provides clear patterns for handling loading states, errors, and data updates while keeping presentation logic separate from business logic.
-
 The framework makes specific choices about how these patterns integrate, providing a complete system rather than individual components. This integration is both the framework's strength and its limitation. Teams gain consistency and structure but sacrifice flexibility to organize code according to their preferences. The final section of this guide examines these trade-offs in detail and provides guidance for evaluating whether Chassis aligns with your project's needs.
 
 
@@ -156,13 +142,13 @@ Each operation is now a first-class object. This provides several benefits. The 
 
 But Chassis extends CQRS with an additional distinction that is critical for Flutter applications: the difference between one-time reads and continuous subscriptions.
 
-### ReadQuery vs WatchQuery: Making Temporal Semantics Explicit
+#### ReadQuery vs WatchQuery: Making Temporal Semantics Explicit
 
 Dart provides two fundamental types for asynchronous operations: `Future` represents a single value that will arrive at some point, and `Stream` represents a sequence of values delivered over time. Developers understand this distinction intuitively when writing implementation code, but traditional CQRS does not enforce it at the architectural level.
 
 Chassis separates read operations into two distinct query types that make temporal semantics explicit through the type system: `ReadQuery` for point-in-time snapshots and `WatchQuery` for continuous observation.
 
-#### Understanding the Distinction
+##### Understanding the Distinction
 
 A **ReadQuery** represents a request for the current state of your data. When you execute a read query, you receive a single response that captures what the system knows at that moment. The operation completes, returns its result, and finishes:
 
@@ -208,7 +194,7 @@ class WatchProjectByIdQueryHandler
 
 This separation makes three things explicit that are otherwise implicit: what temporal pattern a query supports, whether the underlying data source can provide continuous updates, and what lifecycle semantics apply to the operation.
 
-#### Why Separate Query Types Matter
+##### Why Separate Query Types Matter
 
 The separation addresses specific architectural challenges that emerged during practical Flutter development:
 
@@ -220,7 +206,7 @@ The separation addresses specific architectural challenges that emerged during p
 
 **Implementation Clarity:** Separating queries by temporal semantics makes handler responsibilities explicit. A `ReadHandler` retrieves current state. A `WatchHandler` establishes and maintains a subscription. Each handler has a clear, focused responsibility rather than handling multiple temporal patterns with conditional logic.
 
-#### Choosing Between ReadQuery and WatchQuery
+##### Choosing Between ReadQuery and WatchQuery
 
 The decision between query types depends on whether your use case requires awareness of data changes:
 
@@ -240,7 +226,7 @@ The decision between query types depends on whether your use case requires aware
 
 Consider a user profile screen. Profile details should reflect any changes made by the user or synchronized from a server. A `WatchUserProfileQuery` allows your interface to automatically update when profile data changes. By contrast, generating a PDF export of the profile requires only the current state. A `ReadUserProfileQuery` provides exactly what you need without the overhead of maintaining an active subscription.
 
-#### Practical Implications for Repository Design
+##### Practical Implications for Repository Design
 
 This architectural decision shapes how you design repository interfaces:
 
@@ -260,7 +246,7 @@ Not every repository method needs both variants. If your data source is REST-bas
 
 The query type separation allows your architecture to match your infrastructure capabilities. You are not forced to fake streaming support for REST APIs, and you are not prevented from leveraging reactive data sources when available.
 
-#### Integration with ViewModels
+##### Integration with ViewModels
 
 The temporal distinction becomes particularly valuable in ViewModels, where the difference between one-time data fetching and continuous synchronization affects user experience:
 
@@ -288,7 +274,7 @@ class ProjectDetailViewModel extends ViewModel<ProjectDetailState, ProjectDetail
 
 The code clearly expresses intent. The watch query establishes continuous synchronization. The read query performs a one-time fetch. Both are appropriate for their specific use cases.
 
-#### The Default Choice
+##### The Default Choice
 
 While both query types have legitimate use cases, **watch queries should be your default choice for data displayed in the UI**. Modern users expect interfaces that stay current without manual refreshes. The "refresh hell" problem—where users see stale data because refresh logic is incomplete or forgotten—disappears when your architecture defaults to continuous synchronization.
 
