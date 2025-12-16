@@ -1,0 +1,17 @@
+name: example
+description: A sample application using chassis_builder.
+version: 1.0.0
+environment:
+  sdk: ^3.6.2
+
+dependencies:
+  chassis:
+    path: ../../chassis
+
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  chassis_builder:
+    path: ../
+  build_runner: ^2.4.0

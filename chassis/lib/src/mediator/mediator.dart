@@ -1,5 +1,6 @@
 import 'command.dart';
 import 'query.dart';
+import 'middleware.dart';
 
 /// A mediator that coordinates between commands, queries, and their handlers.
 ///
@@ -33,6 +34,8 @@ class Mediator {
   final Map<Type, ReadHandler> _queryHandlers = {};
   final Map<Type, WatchHandler> _streamHandlers = {};
   final Map<Type, CommandHandler> _commandHandlers = {};
+
+  final List<MediatorMiddleware> _middlewares = [];
 
   /// Registers a query handler for the specified query type.
   ///
@@ -99,6 +102,37 @@ class Mediator {
     _commandHandlers[C] = handler;
   }
 
+  /// Adds a middleware to the mediator.
+  ///
+  /// Middlewares are executed in the order they are added.
+  void addMiddleware(MediatorMiddleware middleware) {
+    _middlewares.add(middleware);
+  }
+
+  /// Merges two mediators into a new one.
+  ///
+  /// The returned mediator will contain the union of handlers from both mediators.
+  /// Middlewares from both mediators are also combined.
+  Mediator operator +(Mediator other) {
+    final combined = Mediator();
+
+    // Merge handlers
+    combined._queryHandlers.addAll(_queryHandlers);
+    combined._queryHandlers.addAll(other._queryHandlers);
+
+    combined._streamHandlers.addAll(_streamHandlers);
+    combined._streamHandlers.addAll(other._streamHandlers);
+
+    combined._commandHandlers.addAll(_commandHandlers);
+    combined._commandHandlers.addAll(other._commandHandlers);
+
+    // Merge middlewares
+    combined._middlewares.addAll(_middlewares);
+    combined._middlewares.addAll(other._middlewares);
+
+    return combined;
+  }
+
   /// Executes a read query and returns the result.
   ///
   /// Looks up the appropriate [ReadHandler] for the query type and executes it.
@@ -109,11 +143,21 @@ class Mediator {
   /// final user = await mediator.read(GetUserQuery(userId: '123'));
   /// ```
   Future<T> read<T>(ReadQuery<T> query) {
-    final handler = _queryHandlers[query.runtimeType];
-    if (handler == null) {
-      throw Exception('No ReadHandler registered for ${query.runtimeType}');
+    NextRead<ReadQuery<T>, T> execution = (q) {
+      final handler = _queryHandlers[q.runtimeType];
+      if (handler == null) {
+        throw Exception('No ReadHandler registered for ${q.runtimeType}');
+      }
+      return handler.read(q) as Future<T>;
+    };
+
+    // Chain middlewares
+    for (final middleware in _middlewares.reversed) {
+      final next = execution;
+      execution = (q) => middleware.onRead(q, next);
     }
-    return handler.read(query) as Future<T>;
+
+    return execution(query);
   }
 
   /// Executes a watch query and returns a stream of results.
@@ -127,11 +171,21 @@ class Mediator {
   /// userStream.listen((user) => print('User updated: $user'));
   /// ```
   Stream<T> watch<T>(WatchQuery<T> query) {
-    final handler = _streamHandlers[query.runtimeType];
-    if (handler == null) {
-      throw Exception('No WatchHandler registered for ${query.runtimeType}');
+    NextWatch<WatchQuery<T>, T> execution = (q) {
+      final handler = _streamHandlers[q.runtimeType];
+      if (handler == null) {
+        throw Exception('No WatchHandler registered for ${q.runtimeType}');
+      }
+      return handler.watch(q) as Stream<T>;
+    };
+
+    // Chain middlewares
+    for (final middleware in _middlewares.reversed) {
+      final next = execution;
+      execution = (q) => middleware.onWatch(q, next);
     }
-    return handler.watch(query) as Stream<T>;
+
+    return execution(query);
   }
 
   /// Executes a command and returns the result.
@@ -144,12 +198,21 @@ class Mediator {
   /// final user = await mediator.run(CreateUserCommand(name: 'John', email: 'john@example.com'));
   /// ```
   Future<T> run<T>(Command<T> command) {
-    final handler = _commandHandlers[command.runtimeType];
-    if (handler == null) {
-      throw Exception(
-          'No CommandHandler registered for ${command.runtimeType}');
+    NextRun<Command<T>, T> execution = (c) {
+      final handler = _commandHandlers[c.runtimeType];
+      if (handler == null) {
+        throw Exception('No CommandHandler registered for ${c.runtimeType}');
+      }
+      return handler.run(c) as Future<T>;
+    };
+
+    // Chain middlewares
+    for (final middleware in _middlewares.reversed) {
+      final next = execution;
+      execution = (c) => middleware.onRun(c, next);
     }
-    return handler.run(command) as Future<T>;
+
+    return execution(command);
   }
 
   /// Checks if a handler is available for the specified type.

@@ -60,4 +60,6 @@ library;
 export 'src/mediator/mediator.dart';
 export 'src/mediator/query.dart';
 export 'src/mediator/command.dart';
+export 'src/mediator/middleware.dart';
 export 'src/disposable.dart';
+export 'package:chassis/src/annotations.dart';
