@@ -62,7 +62,7 @@ class LoginHandler implements CommandHandler<LoginCommand, void> {
 
 ### 2. Run the Builder
 
-Run `build_runner` to generate the mediator code.
+Run `build_runner` o generate the mediator code.
 
 ```bash
 dart run build_runner build
@@ -85,7 +85,26 @@ void main() {
     authRepo: authRepo,
   );
 
-  // Use the mediator as usual, or use the generated type-safe extensions
-  mediator.login(LoginCommand('username'));
-}
-```
+
+### 4. Repository Method Generation
+
+You can also generate handlers directly from repository methods.
+
+1.  **Annotate Repository Methods**: Use `@generateQueryHandler` or `@generateCommandHandler` on your repository methods.
+
+    ```dart
+    class UserRepository {
+      @generateQueryHandler
+      Future<User> getUser(String id) async { ... }
+    
+      @generateCommandHandler
+      Future<void> createUser(String name, String email) async { ... }
+      
+      @generateQueryHandler
+      Stream<User> watchUser(String id) async* { ... }
+    }
+    ```
+
+2.  **Generate**: Run the builder. This will create a `.handlers.dart` file next to your repository (e.g., `user_repository.handlers.dart`) containing the handler classes and DTOs.
+
+3.  **Automatic Registration**: The generated handlers are annotated with `@chassisHandler` and will be automatically registered by the mediator generator.

@@ -1,4 +1,5 @@
 import 'package:chassis/chassis.dart';
+import 'package:example/user_repository.dart';
 import 'my_mediator_impl.dart';
 
 // Use strict dependency injection
@@ -9,11 +10,13 @@ class Logger {}
 void main() async {
   final authRepo = AuthRepo();
   final logger = Logger();
+  final userRepository = UserRepository();
 
   // Instantiate the generated concrete class
   final mediator = MyMediator(
     authRepo: authRepo,
     logger: logger,
+    userRepository: userRepository,
   );
 
   await mediator.login(LoginCommand('test_user'));

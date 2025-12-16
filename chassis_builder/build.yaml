@@ -13,3 +13,11 @@ builders:
     build_extensions: {r"$lib$": ["app_mediator.dart"]}
     auto_apply: dependents
     build_to: source
+
+  repository_builder:
+    import: "package:chassis_builder/chassis_builder.dart"
+    builder_factories: ["repositoryBuilder"]
+    build_extensions: {".dart": [".handlers.dart"]}
+    auto_apply: dependents
+    build_to: source
+    runs_before: ["chassis_builder"]
