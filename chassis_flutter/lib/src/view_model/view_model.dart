@@ -54,7 +54,7 @@ import 'package:rxdart/streams.dart';
 /// {@endtemplate}
 class ViewModel<T, E> extends SafeChangeNotifier {
   /// {@macro view_model}
-  ViewModel(this.mediator, T initial) : _state = initial;
+  ViewModel(this.mediator, {required T initial}) : _state = initial;
 
   /// The chassis mediator instance for handling commands and queries.
   final Mediator mediator;
@@ -114,7 +114,7 @@ class ViewModel<T, E> extends SafeChangeNotifier {
   ///
   /// This method subscribes to a [WatchQuery] query and automatically manages the
   /// subscription lifecycle. It will call [onState] with:
-  /// - [StreamStateLoading] initially
+  /// - [StreamStateInitial] initially
   /// - [StreamStateData] when data is received
   /// - [StreamStateError] when an error occurs
   ///
@@ -124,7 +124,7 @@ class ViewModel<T, E> extends SafeChangeNotifier {
     Q query,
     void Function(StreamState<R>) onState,
   ) {
-    onState(StreamStateLoading());
+    onState(StreamStateInitial());
     autoDisposeStreamSubscription(
       mediator.watch(query).listen(
             (data) => onState(StreamStateData(data)),
@@ -137,22 +137,22 @@ class ViewModel<T, E> extends SafeChangeNotifier {
   ///
   /// This is an internal method that handles the common pattern of running
   /// async operations with state management. It calls [onState] with:
-  /// - [FutureLoading] when the operation starts
-  /// - [FutureSuccess] when the operation succeeds
-  /// - [FutureError] when the operation fails
+  /// - [FutureStateLoading] when the operation starts
+  /// - [FutureStateSuccess] when the operation succeeds
+  /// - [FutureStateError] when the operation fails
   Future<FutureResult<R>> _runAsyncOperation<P, R>(
     P param,
     Future<R> Function(P params) executor, {
     void Function(FutureState<R>)? onState,
   }) async {
-    onState?.call(FutureLoading());
+    onState?.call(FutureStateLoading());
     try {
       final res = await executor(param);
-      final state = FutureSuccess(res);
+      final state = FutureStateSuccess(res);
       onState?.call(state);
       return state;
     } catch (e, s) {
-      final res = FutureError<R>(e, s);
+      final res = FutureStateError<R>(e, s);
       onState?.call(res);
       return res;
     }
@@ -162,7 +162,7 @@ class ViewModel<T, E> extends SafeChangeNotifier {
   ///
   /// This method runs a [Read] query through the mediator and can optionally
   /// provide state updates through the [onState] callback. The callback will
-  /// receive [FutureLoading], [FutureSuccess], or [FutureError] states.
+  /// receive [FutureStateLoading], [FutureStateSuccess], or [FutureStateError] states.
   ///
   /// Returns a [FutureResult] that can be used for further processing.
   @protected
@@ -181,7 +181,7 @@ class ViewModel<T, E> extends SafeChangeNotifier {
   ///
   /// This method runs a [Command] through the mediator and can optionally
   /// provide state updates through the [onState] callback. The callback will
-  /// receive [FutureLoading], [FutureSuccess], or [FutureError] states.
+  /// receive [FutureStateLoading], [FutureStateSuccess], or [FutureStateError] states.
   ///
   /// Returns a [FutureResult] that can be used for further processing.
   @protected

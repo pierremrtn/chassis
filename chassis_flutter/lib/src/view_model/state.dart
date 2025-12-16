@@ -31,6 +31,10 @@
 sealed class StreamState<R> {
   /// {@macro stream_state}
   const StreamState();
+
+  factory StreamState.initial() = StreamStateInitial.new;
+  factory StreamState.data(R data) = StreamStateData.new;
+  factory StreamState.error(Object e, StackTrace s) = StreamStateError.new;
 }
 
 /// {@template stream_state_loading}
@@ -39,9 +43,9 @@ sealed class StreamState<R> {
 /// This state indicates that the stream is currently loading and no data
 /// has been received yet.
 /// {@endtemplate}
-final class StreamStateLoading<R> extends StreamState<R> {
+final class StreamStateInitial<R> extends StreamState<R> {
   /// {@macro stream_state_loading}
-  const StreamStateLoading();
+  const StreamStateInitial();
 }
 
 /// {@template stream_state_data}
@@ -100,6 +104,10 @@ final class StreamStateError<R> extends StreamState<R> {
 sealed class FutureState<R> {
   /// {@macro future_state}
   const FutureState();
+
+  factory FutureState.loading() = FutureStateLoading.new;
+  factory FutureState.success(R data) = FutureStateSuccess.new;
+  factory FutureState.error(Object e, StackTrace s) = FutureStateError.new;
 }
 
 /// {@template future_loading}
@@ -108,9 +116,9 @@ sealed class FutureState<R> {
 /// This state indicates that the future is currently executing and no result
 /// has been received yet.
 /// {@endtemplate}
-final class FutureLoading<R> implements FutureState<R> {
+final class FutureStateLoading<R> implements FutureState<R> {
   /// {@macro future_loading}
-  const FutureLoading();
+  const FutureStateLoading();
 }
 
 /// {@template future_result}
@@ -129,9 +137,9 @@ sealed class FutureResult<R> implements FutureState<R> {
 ///
 /// This state contains the data returned by the successful future operation.
 /// {@endtemplate}
-final class FutureSuccess<R> implements FutureResult<R> {
+final class FutureStateSuccess<R> implements FutureResult<R> {
   /// {@macro future_success}
-  const FutureSuccess(this.data);
+  const FutureStateSuccess(this.data);
 
   /// The data returned by the successful operation.
   final R data;
@@ -143,9 +151,9 @@ final class FutureSuccess<R> implements FutureResult<R> {
 /// This state contains information about an error that occurred during
 /// the future operation.
 /// {@endtemplate}
-final class FutureError<R> implements FutureResult<R> {
+final class FutureStateError<R> implements FutureResult<R> {
   /// {@macro future_error}
-  const FutureError(this.error, this.stackTrace);
+  const FutureStateError(this.error, this.stackTrace);
 
   /// The error that occurred.
   final Object error;
@@ -164,9 +172,9 @@ final class FutureError<R> implements FutureResult<R> {
 extension FutureStateUtils<R> on FutureState<R> {
   /// Transforms this state using the provided functions.
   ///
-  /// If this is a [FutureLoading], calls [loading].
-  /// If this is a [FutureSuccess], calls [data] with the value.
-  /// If this is a [FutureError], calls [error] with the error.
+  /// If this is a [FutureStateLoading], calls [loading].
+  /// If this is a [FutureStateSuccess], calls [data] with the value.
+  /// If this is a [FutureStateError], calls [error] with the error.
   ///
   /// All functions are required and must return a value of type [U].
   ///
@@ -181,12 +189,23 @@ extension FutureStateUtils<R> on FutureState<R> {
   U when<U>({
     required U Function() loading,
     required U Function(R data) data,
-    required U Function(Object error) error,
+    required U Function(Object error, StackTrace stackTrace) error,
   }) =>
       switch (this) {
-        FutureLoading<R>() => loading(),
-        FutureSuccess<R>(data: final d) => data(d),
-        FutureError<R>(error: final e) => error(e),
+        FutureStateLoading<R>() => loading(),
+        FutureStateSuccess<R>(data: final d) => data(d),
+        FutureStateError<R>(error: final e, stackTrace: final s) => error(e, s),
+      };
+
+  FutureState<U> map<U>(
+    U Function(R) mapper,
+  ) =>
+      switch (this) {
+        FutureStateLoading<R>() => FutureStateLoading<U>(),
+        FutureStateSuccess<R>(data: final d) =>
+          FutureStateSuccess<U>(mapper(d)),
+        FutureStateError<R>(error: final e, stackTrace: final s) =>
+          FutureStateError<U>(e, s),
       };
 }
 
@@ -200,8 +219,8 @@ extension FutureStateUtils<R> on FutureState<R> {
 extension FutureResultUtils<R> on FutureResult<R> {
   /// Transforms this result using the provided functions.
   ///
-  /// If this is a [FutureSuccess], calls [data] with the value.
-  /// If this is a [FutureError], calls [error] with the error.
+  /// If this is a [FutureStateSuccess], calls [data] with the value.
+  /// If this is a [FutureStateError], calls [error] with the error.
   ///
   /// Both functions are required and must return a value of type [U].
   ///
@@ -217,8 +236,8 @@ extension FutureResultUtils<R> on FutureResult<R> {
     required U Function(Object error) error,
   }) =>
       switch (this) {
-        FutureSuccess<R>(data: final d) => data(d),
-        FutureError<R>(error: final e) => error(e),
+        FutureStateSuccess<R>(data: final d) => data(d),
+        FutureStateError<R>(error: final e) => error(e),
       };
 }
 
@@ -233,7 +252,7 @@ extension FutureResultUtils<R> on FutureResult<R> {
 extension StreamStateUtils<R> on StreamState<R> {
   /// Transforms this state using the provided functions.
   ///
-  /// If this is a [StreamStateLoading], calls [loading].
+  /// If this is a [StreamStateInitial], calls [loading].
   /// If this is a [StreamStateData], calls [data] with the value.
   /// If this is a [StreamStateError], calls [error] with the error.
   ///
@@ -253,14 +272,14 @@ extension StreamStateUtils<R> on StreamState<R> {
     required U Function(Object error) error,
   }) =>
       switch (this) {
-        StreamStateLoading<R>() => loading(),
+        StreamStateInitial<R>() => loading(),
         StreamStateData<R>(data: final d) => data(d),
         StreamStateError<R>(error: final e) => error(e),
       };
 
   /// Transforms this state using the provided optional functions.
   ///
-  /// If this is a [StreamStateLoading] and [loading] is provided, calls it.
+  /// If this is a [StreamStateInitial] and [loading] is provided, calls it.
   /// If this is a [StreamStateData] and [data] is provided, calls it with the value.
   /// If this is a [StreamStateError] and [error] is provided, calls it with the error.
   /// Returns `null` if the appropriate function is not provided.
@@ -279,7 +298,7 @@ extension StreamStateUtils<R> on StreamState<R> {
     U Function(Object error)? error,
   }) =>
       switch (this) {
-        StreamStateLoading<R>() => loading?.call(),
+        StreamStateInitial<R>() => loading?.call(),
         StreamStateData<R>(data: final d) => data?.call(d),
         StreamStateError<R>(error: final e) => error?.call(e),
       };
@@ -306,7 +325,7 @@ extension StreamStateUtils<R> on StreamState<R> {
         _ => defaultValue,
       };
 
-  /// Returns `true` if this state is a [StreamStateLoading].
+  /// Returns `true` if this state is a [StreamStateInitial].
   ///
   /// Example:
   /// ```dart
@@ -314,7 +333,7 @@ extension StreamStateUtils<R> on StreamState<R> {
   ///   showLoadingIndicator();
   /// }
   /// ```
-  bool get isLoading => this is StreamStateLoading<R>;
+  bool get isLoading => this is StreamStateInitial<R>;
 
   /// Returns `true` if this state is a [StreamStateData].
   ///
