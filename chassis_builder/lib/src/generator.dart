@@ -10,40 +10,31 @@ import 'package:glob/glob.dart';
 import 'package:source_gen/source_gen.dart';
 
 class ChassisBuilder implements Builder {
+  final String _mediatorName;
+  final String _outputName;
+
+  ChassisBuilder(BuilderOptions options)
+      : _mediatorName =
+            options.config['mediator_name'] as String? ?? 'AppMediator',
+        _outputName =
+            options.config['output_name'] as String? ?? 'app_mediator.dart';
+
   @override
-  final Map<String, List<String>> buildExtensions = {
-    '.dart': ['.chassis.dart'],
-  };
+  Map<String, List<String>> get buildExtensions => {
+        r'$lib$': [_outputName],
+      };
 
   @override
   Future<void> build(BuildStep buildStep) async {
-    final assetId = buildStep.inputId;
-    if (assetId.path.endsWith('.g.dart') ||
-        assetId.path.endsWith('.chassis.dart')) {
-      return;
-    }
-
     try {
-      final library = await buildStep.resolver.libraryFor(assetId);
-      final reader = LibraryReader(library);
-
-      // Find annotated classes
-      final mediators = reader
-          .annotatedWith(const TypeChecker.fromRuntime(ChassisMediator))
-          .where((e) => e.element is ClassElement)
-          .map((e) => e.element as ClassElement)
-          .toList();
-
-      if (mediators.isEmpty) return;
-
-      // Scan for handlers (This scans ALL files for every mediator - optimization needed in real world, but fine for now)
       final handlers = <ClassElement>[];
       final allAssets =
           await buildStep.findAssets(Glob('lib/**.dart')).toList();
 
       for (final id in allAssets) {
-        if (id.path.endsWith('.g.dart') || id.path.endsWith('.chassis.dart'))
-          continue;
+        if (id.path.endsWith('.g.dart') ||
+            id.path.endsWith('.chassis.dart') ||
+            id.path.endsWith(_outputName)) continue;
         try {
           final lib = await buildStep.resolver.libraryFor(id);
           final libReader = LibraryReader(lib);
@@ -56,19 +47,16 @@ class ChassisBuilder implements Builder {
         } catch (_) {}
       }
 
-      final outputId = assetId.changeExtension('.chassis.dart');
-      final generatedCode = _generateCode(mediators, handlers);
+      final outputId = AssetId(buildStep.inputId.package, 'lib/$_outputName');
+      final generatedCode = _generateCode(handlers);
       await buildStep.writeAsString(outputId, generatedCode);
     } catch (e) {
-      // Ignore
+      log.severe('Failed to generate mediator', e);
     }
   }
 
-  String _generateCode(
-    List<ClassElement> mediators,
-    List<ClassElement> handlers,
-  ) {
-    if (mediators.isEmpty) return '';
+  String _generateCode(List<ClassElement> handlers) {
+    if (handlers.isEmpty) return '';
 
     final manualImports = <String>{
       'package:chassis/chassis.dart',
@@ -91,8 +79,7 @@ class ChassisBuilder implements Builder {
       (l) => l
         ..directives.addAll(manualImports.map((url) => Directive.import(url)))
         ..body.addAll(
-          mediators.expand((mediator) =>
-              _generateMediatorArtifacts(mediator, handlers, dependencyMap)),
+          _generateMediatorArtifacts(handlers, dependencyMap),
         ),
     );
 
@@ -102,16 +89,13 @@ class ChassisBuilder implements Builder {
   }
 
   Iterable<Spec> _generateMediatorArtifacts(
-    ClassElement mediator,
     List<ClassElement> handlers,
     Map<String, Reference> dependencyMap,
   ) {
-    final generatedName = '\$${mediator.name}';
-
     final mediatorClass = Class(
       (c) => c
-        ..name = generatedName
-        ..extend = refer(mediator.name, mediator.source.uri.toString())
+        ..name = _mediatorName
+        ..extend = refer('Mediator')
         ..constructors.add(
           Constructor(
             (ctor) => ctor
@@ -135,7 +119,7 @@ class ChassisBuilder implements Builder {
 
     final extension = Extension(
       (e) => e
-        ..name = '${mediator.name}Extensions'
+        ..name = '${_mediatorName}Extensions'
         ..on = refer('Mediator')
         ..methods.addAll(
           handlers.map((h) => _generateExtensionMethod(h)).nonNulls,

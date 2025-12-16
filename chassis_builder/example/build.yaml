@@ -1,0 +1,7 @@
+targets:
+  $default:
+    builders:
+      chassis_builder:
+        options:
+          mediator_name: MyMediator
+          output_name: my_mediator_impl.dart

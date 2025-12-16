@@ -10,6 +10,6 @@ builders:
   chassis_builder:
     import: "package:chassis_builder/chassis_builder.dart"
     builder_factories: ["chassisBuilder"]
-    build_extensions: {".dart": [".chassis.dart"]}
+    build_extensions: {r"$lib$": ["app_mediator.dart"]}
     auto_apply: dependents
     build_to: source

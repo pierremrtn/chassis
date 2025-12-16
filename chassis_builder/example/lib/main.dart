@@ -1,5 +1,5 @@
 import 'package:chassis/chassis.dart';
-import 'my_mediator.chassis.dart';
+import 'my_mediator_impl.dart';
 
 // Use strict dependency injection
 class AuthRepo {}
@@ -11,7 +11,7 @@ void main() async {
   final logger = Logger();
 
   // Instantiate the generated concrete class
-  final mediator = $MyMediator(
+  final mediator = MyMediator(
     authRepo: authRepo,
     logger: logger,
   );
