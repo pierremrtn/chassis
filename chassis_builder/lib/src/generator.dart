@@ -77,8 +77,6 @@ class ChassisBuilder implements Builder {
 
     // Analyze dependencies
     for (final handler in handlers) {
-      manualImports.add(handler.source.uri.toString());
-
       final constructor = handler.unnamedConstructor;
       if (constructor == null) continue;
       for (final param in constructor.parameters) {

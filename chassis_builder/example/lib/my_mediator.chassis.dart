@@ -2,7 +2,6 @@
 import 'package:example/my_mediator.dart' as _i1;
 import 'package:example/main.dart' as _i2;
 import 'package:chassis/chassis.dart';
-import 'package:example/main.dart';
 
 class $MyMediator extends _i1.MyMediator {
   $MyMediator({
