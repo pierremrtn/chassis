@@ -31,15 +31,16 @@ First, create immutable classes for your UI's **State** (the data to render) and
 ```dart
 // lib/features/greeting/greeting_view_model.dart
 class GreetingState {
-  const GreetingState({this.isLoading = false, this.message = ''});
-  final bool isLoading;
-  final String message;
+  const GreetingState({
+    this.greeting = const Async.loading(),
+  });
+  
+  final Async<String> greeting;
   
   // A copyWith method is recommended for immutability
-  GreetingState copyWith({bool? isLoading, String? message}) {
+  GreetingState copyWith({Async<String>? greeting}) {
     return GreetingState(
-      isLoading: isLoading ?? this.isLoading,
-      message: message ?? this.message,
+      greeting: greeting ?? this.greeting,
     );
   }
 }
@@ -64,19 +65,15 @@ class GreetingViewModel extends ViewModel<GreetingState, GreetingEvent> {
 
   void _subscribeToGreetings() {
     // Watch the greeting stream for real-time updates
-    watch(const WatchGreetingsQuery(), (streamState) {
-      streamState.when(
-        loading: () {
-          setState(state.copyWith(isLoading: true));
-        },
-        data: (greeting) {
-          setState(state.copyWith(isLoading: false, message: greeting));
-          sendEvent(ShowGreetingSuccess('Greeting updated!'));
-        },
-        error: (error, _) {
-          setState(state.copyWith(isLoading: false, error: error.toString()));
-        },
-      );
+    watch(const WatchGreetingsQuery(), (asyncState) {
+        // AsyncBuilder in the view handles loading/error states for us.
+        // We just need to update our state with the latest async snapshot.
+        setState(state.copyWith(greeting: asyncState));
+        
+        // Use pattern matching for side effects if needed (e.g. success toast)
+        if (asyncState case AsyncData(value: final msg)) {
+           sendEvent(ShowGreetingSuccess(msg));
+        }
     });
   }
 }
@@ -105,7 +102,7 @@ class MyApp extends StatelessWidget {
 Finally, connect your UI to the `ViewModel`.
 
   * Use `context.watch<T>()` in the `build` method to listen for state changes and rebuild the UI.
-  * Use `context.read<T>()` in callbacks (like `onPressed`) to call methods on the `ViewModel` without rebuilding.
+  * Use `AsyncBuilder` to handle loading, data, and error states automatically.
   * Use the `ConsumerMixin` to handle one-time events.
 
 <!-- end list -->
@@ -135,9 +132,15 @@ class _GreetingScreenState extends State<GreetingScreen> with ConsumerMixin {
     return Scaffold(
       appBar: AppBar(title: const Text('Chassis Quickstart')),
       body: Center(
-        child: state.isLoading
-            ? const CircularProgressIndicator()
-            : Text(state.message, style: Theme.of(context).textTheme.headlineMedium),
+        // AsyncBuilder handles loading, error, and data states for you
+        child: AsyncBuilder(
+          state: state.greeting,
+          builder: (context, message) => Text(
+            message, 
+            style: Theme.of(context).textTheme.headlineMedium
+          ),
+          loadingBuilder: (context) => const CircularProgressIndicator(),
+        ),
       ),
     );
   }

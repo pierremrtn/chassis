@@ -62,4 +62,5 @@ export 'src/mediator/query.dart';
 export 'src/mediator/command.dart';
 export 'src/mediator/middleware.dart';
 export 'src/disposable.dart';
+export 'src/async.dart';
 export 'package:chassis/src/annotations.dart';

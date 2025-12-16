@@ -120,55 +120,46 @@ class ViewModel<T, E> extends SafeChangeNotifier {
   ///
   /// The subscription is automatically disposed when the view model is disposed.
   @protected
+
+  /// Watches a streaming query and calls [onState] with state updates.
+  @protected
   void watch<Q extends WatchQuery<R>, R>(
     Q query,
-    void Function(StreamState<R>) onState,
+    void Function(Async<R>) onState,
   ) {
-    onState(StreamStateInitial());
+    onState(const Async.loading());
     autoDisposeStreamSubscription(
       mediator.watch(query).listen(
-            (data) => onState(StreamStateData(data)),
-            onError: (e, s) => onState(StreamStateError(e, s)),
+            (data) => onState(Async.data(data)),
+            onError: (e, s) => onState(Async.error(e, stackTrace: s)),
           ),
     );
   }
 
   /// Runs an async operation and manages its state.
-  ///
-  /// This is an internal method that handles the common pattern of running
-  /// async operations with state management. It calls [onState] with:
-  /// - [FutureStateLoading] when the operation starts
-  /// - [FutureStateSuccess] when the operation succeeds
-  /// - [FutureStateError] when the operation fails
-  Future<FutureResult<R>> _runAsyncOperation<P, R>(
+  Future<Async<R>> _runAsyncOperation<P, R>(
     P param,
     Future<R> Function(P params) executor, {
-    void Function(FutureState<R>)? onState,
+    void Function(Async<R>)? onState,
   }) async {
-    onState?.call(FutureStateLoading());
+    onState?.call(const Async.loading());
     try {
       final res = await executor(param);
-      final state = FutureStateSuccess(res);
+      final state = Async.data(res);
       onState?.call(state);
       return state;
     } catch (e, s) {
-      final res = FutureStateError<R>(e, s);
+      final res = Async<R>.error(e, stackTrace: s);
       onState?.call(res);
       return res;
     }
   }
 
   /// Executes a read query and optionally calls [onState] with state updates.
-  ///
-  /// This method runs a [Read] query through the mediator and can optionally
-  /// provide state updates through the [onState] callback. The callback will
-  /// receive [FutureStateLoading], [FutureStateSuccess], or [FutureStateError] states.
-  ///
-  /// Returns a [FutureResult] that can be used for further processing.
   @protected
-  Future<FutureResult<R>> read<Q extends ReadQuery<R>, R>(
+  Future<Async<R>> read<Q extends ReadQuery<R>, R>(
     Q query, [
-    void Function(FutureState<R>)? onState,
+    void Function(Async<R>)? onState,
   ]) async {
     return await _runAsyncOperation(
       query,
@@ -178,16 +169,10 @@ class ViewModel<T, E> extends SafeChangeNotifier {
   }
 
   /// Executes a command and optionally calls [onState] with state updates.
-  ///
-  /// This method runs a [Command] through the mediator and can optionally
-  /// provide state updates through the [onState] callback. The callback will
-  /// receive [FutureStateLoading], [FutureStateSuccess], or [FutureStateError] states.
-  ///
-  /// Returns a [FutureResult] that can be used for further processing.
   @protected
-  Future<FutureResult<R>> run<C extends Command<R>, R>(
+  Future<Async<R>> run<C extends Command<R>, R>(
     C command, [
-    void Function(FutureState<R>)? onState,
+    void Function(Async<R>)? onState,
   ]) async {
     return await _runAsyncOperation(
       command,

@@ -80,5 +80,6 @@ library;
 export 'src/view_model/view_model.dart';
 export 'src/view_model/view_model_provider.dart';
 export 'package:provider/provider.dart';
-export 'src/view_model/state.dart';
+export 'package:chassis/chassis.dart';
+export 'src/widgets/async_builder.dart';
 export 'src/consumer_widget/consumer_mixin.dart';
