@@ -1,6 +1,6 @@
 # Core Architecture
 
-Chassis implements a layered architecture grounded in established software engineering principles. Understanding these principles helps you make informed architectural decisions as your application grows. This guide explores three foundational concepts that underpin the framework: Layered Architecture, Command-Query Separation, and the Mediator Pattern. These patterns are not unique to Chassis; they are proven solutions to common software design challenges that have been refined over decades of industry practice.
+Chassis implements a layered architecture built on three foundational concepts: Layered Architecture, Command-Query Separation, and the Mediator Pattern. This guide explains how these principles work together to enforce clean separation of concerns and prevent common architectural mistakes.
 
 ## Layered Architecture
 
@@ -90,7 +90,7 @@ The interface abstraction allows you to test the Handler by providing a mock rep
 
 ### Benefits of Layering
 
-Each layer can be tested independently. Application logic tests run without a Flutter environment or database connection, executing in milliseconds rather than seconds. You can swap a REST API repository for a GraphQL implementation without touching handlers or ViewModels, as both satisfy the same interface contract. Changes propagate predictably—a UI redesign affects only the Presentation layer, while a database migration impacts only the Infrastructure layer.
+Each layer can be tested independently. Application logic tests run without a Flutter environment or database connection. You can swap a REST API repository for a GraphQL implementation without touching handlers or ViewModels, as both satisfy the same interface contract. Changes propagate predictably — a UI redesign affects only the Presentation layer, while a database migration impacts only the Infrastructure layer.
 
 The ViewModel is architecturally restricted to being a transformation layer for the UI. It cannot accidentally implement business logic because it lacks direct access to repositories. It must delegate to a Handler via the Mediator, which creates a natural checkpoint where logic belongs in tested, reusable components. This prevention of logic leaks maintains the integrity of your architecture over time, even as teams grow and developers rotate.
 
@@ -100,7 +100,7 @@ For concrete testing examples demonstrating how to test each layer in isolation,
 
 ### The Principle
 
-Command-Query Separation, formalized by Bertrand Meyer, states that methods should either change state or return data, never both. In Chassis, this principle manifests through distinct message types. Commands represent intent to mutate state and may return result values like a created entity ID. Queries retrieve data without side effects and can be executed multiple times safely.
+Command-Query Separation states that methods should either change state or return data, never both. In Chassis, this principle manifests through distinct message types. Commands represent intent to mutate state and may return result values like a created entity ID. Queries retrieve data without side effects and can be executed multiple times safely.
 
 This separation improves reasoning about side effects. When you see a Query in code, you know it's safe to call multiple times without unintended consequences. When you see a Command, you understand that state will change and execution should be deliberate. The type system enforces this distinction at compile time.
 
@@ -128,8 +128,6 @@ class WatchUserQuery implements WatchQuery<User> {
 }
 ```
 
-These message classes are defined in [lib/src/mediator/command.dart:19-22](../lib/src/mediator/command.dart#L19-L22) and [lib/src/mediator/query.dart:7-39](../lib/src/mediator/query.dart#L7-L39).
-
 ### ReadQuery vs WatchQuery
 
 Chassis extends Command-Query Separation by distinguishing one-time reads from reactive streams. ReadQuery serves situations where you need the current state once, such as fetching a user profile when a screen loads. WatchQuery handles scenarios requiring ongoing reactivity, like displaying real-time message counts or monitoring collaborative document changes.
@@ -146,13 +144,9 @@ mediator.watch(WatchUserQuery(userId: '123')).listen((user) {
 });
 ```
 
-The implementation details can be found in [lib/src/mediator/mediator.dart:136-189](../lib/src/mediator/mediator.dart#L136-L189).
-
 ### Practical Implications
 
-Command-Query Separation enables performance optimizations. Read operations can be cached aggressively because they do not mutate state, allowing you to serve subsequent requests from memory. It also clarifies API design—a method returning `Future<User>` should never have side effects, making the code's behavior predictable.
-
-In distributed systems, this separation maps naturally to CQRS (Command Query Responsibility Segregation) architectures. You can scale read and write paths independently, optimizing each for their specific access patterns. A single CommandHandler, such as LogoutHandler, can be triggered from multiple ViewModels—Profile, Settings, or ExpiredSessionMiddleware—without code duplication. The logic lives in one place and is reused by reference to the Command type.
+A single Handler, such as LogoutHandler, can be triggered from multiple ViewModels —Profile, Settings, or ExpiredSessionMiddleware— without code duplication. The logic lives in one place and is reused by reference to the Command/Query type.
 
 ## The Mediator Pattern
 
@@ -227,29 +221,40 @@ sequenceDiagram
     VM->>VM: setState() or sendEvent()
 ```
 
-Handler registration happens at application startup, creating a type-safe registry. The lookup is efficient, using Dart's type system to match messages with handlers. This implementation can be examined in [lib/src/mediator/mediator.dart:200-216](../lib/src/mediator/mediator.dart#L200-L216).
+Handler registration happens at application startup, creating a type-safe registry.
 
 ### Type Safety and Discoverability
 
-The Mediator registry provides compile-time type safety. Attempting to dispatch an unregistered command results in a runtime error that can be caught during development and testing. When using code generation, the type-safe extension methods provide even stronger guarantees, turning missing handlers into compile-time errors.
+The Mediator registry generated by Chassis provides compile-time type safety.
 
 A significant advantage of this pattern is discoverability. Your application's capabilities become self-documenting through Command and Query classes. To understand what a feature can do, examine its message types. This differs fundamentally from traditional architectures where capabilities are scattered across controller methods with no central catalog.
 
 ```dart
-// Application capabilities are discoverable
-class UserFeature {
-  // Commands (writes)
-  final createUser = CreateUserCommand(...);
-  final updateUser = UpdateUserCommand(...);
-  final deleteUser = DeleteUserCommand(...);
+// Generated mediator extensions provide type-safe, discoverable operations
+extension MyMediatorExtensions on Mediator {
+  // Commands (writes) - use run()
+  Future<void> createUserCommand(String name, String email) =>
+      run(CreateUserCommand(name: name, email: email));
 
-  // Queries (reads)
-  final getUser = GetUserQuery(...);
-  final watchUsers = WatchUsersQuery(...);
+  Future<void> updateUserCommand(String id, String name) =>
+      run(UpdateUserCommand(id: id, name: name));
+
+  Future<void> deleteUserCommand(String id) =>
+      run(DeleteUserCommand(id: id));
+
+  // Queries (reads) - use read()
+  Future<User> getUserQuery(String id) =>
+      read(GetUserQuery(id: id));
+
+  // Queries (reactive reads) - use watch()
+  Stream<List<User>> watchUsersQuery() =>
+      watch(WatchUsersQuery());
 }
 
-// IDE autocomplete shows all available operations
-mediator.run(/* IDE suggests CreateUserCommand, UpdateUserCommand, etc. */);
+// IDE autocomplete shows all available operations with type safety
+await mediator.createUserCommand('John', 'john@example.com');
+final user = await mediator.getUserQuery('user-123');
+mediator.watchUsersQuery().listen((users) => print(users));
 ```
 
 A developer can look at the list of Command and Query classes to understand exactly what the application does, without diving into implementation details. This "code as documentation" quality improves maintainability as teams scale and new developers join projects.
@@ -290,7 +295,6 @@ final mediator = Mediator();
 mediator.addMiddleware(LoggingMiddleware());
 ```
 
-The middleware implementation is defined in [lib/src/mediator/middleware.dart](../lib/src/mediator/middleware.dart).
 
 ## Summary
 
