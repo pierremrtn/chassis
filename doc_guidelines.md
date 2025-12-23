@@ -19,17 +19,19 @@ The documentation should mimic the official **Flutter Documentation style**.
     * ✅ **Use:** "Chassis encourages a layered architecture," "Code generation automates the wiring," "This improves maintainability."
 * **Authoritative but Flexible:** Acknowledge that architectural choices depend on complexity. Use the "90/10" concept as a flexibility feature, not a rigid rule.
 
-## 2. Structure of Concepts
-When introducing a new concept (e.g., `Command`, `Mediator`, `AsyncBuilder`), follow this pattern found in Flutter docs:
-
-1.  **The Principle:** Define the software engineering concept (e.g., "Command Pattern", "Reactive UI").
-2.  **The Context:** Explain how it fits into the Flutter ecosystem.
-3.  **The Implementation:** Show how Chassis implements this principle.
-4.  **The Benefit:** Conclude with *why* this matters (Testability, Extensibility, etc.).
-
-**Example:**
-> *Instead of "Use commands to update data," write:*
-> "Unidirectional Data Flow helps decouple state from the UI. In Chassis, this is achieved through **Commands**. A Command expresses a clear intent to change state, flowing from the UI layer to the Logic layer."
+## 2. Structure & Writing Style (UPDATED)
+* **Prose over Lists:** Do NOT use bullet points for explanations. Use full, cohesive paragraphs to explain concepts.
+    * ❌ **Bad:**
+      * AsyncBuilder handles loading.
+      * It also handles errors.
+    * ✅ **Good:**
+      "The AsyncBuilder widget takes responsibility for the entire data lifecycle. Instead of manually checking for loading states in your build method, it automatically transitions between loading, data, and error views based on the provided state."
+* **Connective Tissue:** Use transition words (e.g., "Consequently," "However," "In contrast," "Specifically") to link ideas together. The text should flow naturally.
+* **Bullet Points Usage:** Reserve bullet points strictly for:
+    * Lists of parameters.
+    * Sequential steps (Step 1, Step 2).
+    * Feature lists.
+    * Do NOT use them for general explanations.
 
 ## 3. Formatting Standards
 * **Paragraphs:** Keep them short (2-4 sentences). Large blocks of text are hard to scan.

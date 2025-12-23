@@ -1,63 +1,145 @@
-00. Introduction & Quick Start (README.md + 00_quick_start.md)
+1. [00_quick_start.md] - The "Hello World"
 
-    Objectif : "Get running in 5 minutes".
+Goal: Prove the framework's value in under 5 minutes through a working example. Tone: Direct, action-oriented. No theory, just practice.
 
-    Contenu : Installation, exemple minimal "Counter App" (Repository + Annotation + Vue).
+    Prerequisites & Installation:
 
-    Argument clé intégré : Standardization (Une structure immédiate pour tous les devs).
+        pubspec.yaml setup (chassis, chassis_flutter, chassis_builder, build_runner).
 
-01. Core Architecture & Principles (01_core_architecture.md)
+        build.yaml configuration.
 
-    Remplace : "La Vision / The Pain".
+    The Counter Example (Step-by-Step):
 
-    Contenu :
+        Repository: Create CounterRepository with annotated methods (@generateQueryHandler, @generateCommandHandler).
 
-        Layered Architecture : Définition stricte (UI -> Logic -> Data).
+        Generation: Run build_runner to see the output.
 
-        Command-Query Separation (CQS) : Pourquoi on sépare lecture et écriture.
+        ViewModel: Create CounterViewModel consuming the Mediator.
 
-        The Mediator Pattern : Le découplage total.
+        UI: Create CounterPage using AsyncBuilder.
 
-    Argument clé intégré : Discoverability (Le code comme documentation) & Maintainability.
+    What You Just Built: A brief breakdown of the flow (UI → ViewModel → Mediator → Repo) to de-mystify the example.
 
-02. Business Logic Layer (02_business_logic.md)
+2. [01_core_architecture.md] - The Principles
 
-    Remplace : "Handler Mechanism".
+Goal: Establish the mental model. Explain why the code is structured this way. Tone: Educational, high-level, software engineering focus.
 
-    Contenu :
+    Layered Architecture:
 
-        Implémentation manuelle des Command et Query.
+        Definition of the three layers: Presentation (UI), Application (Logic), Infrastructure (Data).
 
-        Structure d'un Handler (Injection de dépendances).
+        Strict dependency rules (UI depends on Logic; Logic is independent of UI).
 
-        Testability : Focus spécifique sur comment tester un Handler en isolation (un de vos arguments forts).
+    Command-Query Separation (CQS):
 
-    Argument clé intégré : Testability & Mockability (Tests unitaires purs sans Flutter).
+        The principle of separating Reads (Queries) from Writes (Commands).
 
-03. Automated Wiring (03_code_generation.md)
+        Why this improves reasoning about side effects.
 
-    Remplace : "Chassis Builder / L'accélérateur".
+    The Mediator Pattern:
 
-    Contenu :
+        How the Mediator decouples the Sender (ViewModel) from the Receiver (Handler).
 
-        Le principe "Convention over Configuration".
+        Diagram: (Sequence Diagram showing ViewModel -> Mediator -> Handler).
 
-        Les annotations @generateQueryHandler et @generateCommandHandler.
+        Benefit: Discoverability (Code as a catalog of capabilities).
 
-        Quand générer vs Quand écrire manuellement (La règle 90/10 vue sous un angle technique).
+3. [02_business_logic.md] - The Manual Implementation
 
-    Argument clé intégré : Enforced Architecture (Le générateur garantit le respect des règles).
+Goal: Teach the internal mechanics. Essential for the "10% complex cases" and understanding the generated code. Tone: Technical deep-dive.
 
-04. Presentation Layer (04_ui_integration.md)
+    Anatomy of Messages:
 
-    Remplace : "Reactive UI".
+        Command<T>: Immutable intent to change state.
 
-    Contenu :
+        ReadQuery<T> vs WatchQuery<T>: One-time fetch vs Reactive streams.
 
-        State Management : Le rôle du ViewModel.
+    The Handler Contract:
 
-        Reactive Primitives : Comprendre et utiliser Async<T> et AsyncBuilder.
+        Structure of a CommandHandler, ReadHandler, and WatchHandler.
 
-        Widget Testing : Comment mocker le Mediator pour tester l'UI (l'autre facette de la testabilité).
+        Dependency Injection: How handlers receive Repositories/Services via constructor.
 
-    Argument clé intégré : Unidirectional Data Flow (UI est une fonction de l'état).
+    Testing Strategy (Unit Testing):
+
+        How to test logic in isolation using pure Dart tests.
+
+        Example: Mocking a repository to test a complex CommandHandler.
+
+    When to Write Manually:
+
+        Complex orchestration (multi-step flows).
+
+        Transaction management.
+
+        Cross-cutting business rules (e.g., validation logic that spans multiple domains).
+
+4. [03_code_generation.md] - The Automation
+
+Goal: Explain how to use the builder to eliminate boilerplate for standard operations. Tone: Pragmatic. "Convention over Configuration".
+
+    The 90/10 Principle:
+
+        Using automation for standard CRUD (90%) vs Manual for complex logic (10%).
+
+    Annotations Reference:
+
+        @generateQueryHandler: Mapping Future to ReadQuery and Stream to WatchQuery.
+
+        @generateCommandHandler: Mapping Future<void> or Future<T> to Command.
+
+        @chassisHandler: Marking manual handlers for auto-registration.
+
+    The Generated Mediator:
+
+        How dependency injection is automated.
+
+        Type-safe extension methods (mediator.updateUser(...) vs mediator.run(...)).
+
+    Architectural Enforcement:
+
+        How the generator prevents wiring errors at compile time.
+
+5. [04_ui_integration.md] - The Presentation Layer
+
+Goal: Explain how to consume data and handle interactions in Flutter. Tone: Functional. "UI is a function of State".
+
+    The ViewModel Pattern:
+
+        Role: Transforming Domain State into UI State.
+
+        Unidirectional Data Flow: Commands go up, Data comes down.
+
+    Modeling State with Async<T>:
+
+        The 3 states: AsyncLoading, AsyncData, AsyncError.
+
+        Why sealed classes ensure exhaustiveness (no unhandled states).
+
+    The AsyncBuilder Widget:
+
+        Standardizing the loading/error/data UI pattern.
+
+        Anti-Flickering: Explanation of the maintainState property for smooth refetches.
+
+    Handling One-Time Events:
+
+        Distinction between State (Persistent) and Events (Ephemeral - Snackbars, Navigation).
+
+        Using ConsumerMixin to listen to events.
+
+    Widget Testing:
+
+        How to mock the Mediator to test UI in isolation.
+
+---
+
+Appendices (To be included in relevant sections or as separate files if needed)
+
+    Glossary: Definitions of Command, Query, Handler, Mediator, DTO.
+
+    FAQ:
+
+        "How do I handle global errors?" (Middleware).
+
+        "Can I use Chassis with other state management?" (Comparison/Coexistence).
