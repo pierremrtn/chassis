@@ -299,47 +299,84 @@ The `--delete-conflicting-outputs` flag ensures stale generated files are remove
 
 Regarding version control, committing generated files is recommended. While some teams prefer generating code during CI/CD, committing generated files makes code review easier and prevents build-time surprises. Reviewers can see exactly what code executes, not just the annotations that produce it. This transparency aids debugging and understanding system behavior.
 
-## Counter Example - Code Generation Version
+## Todo List Example - Code Generation Version
 
-Revisiting the Quick Start counter example demonstrates the dramatic reduction in boilerplate that code generation provides. The manual version required five files with approximately 150 lines of code. The generated version reduces this to three files with approximately 60 lines.
+Revisiting the Quick Start todo list example demonstrates the dramatic reduction in boilerplate that code generation provides. The manual version required approximately 150 lines of handler code across multiple files. The generated version reduces this to just three repository annotations.
 
 ```dart
-// lib/data/counter_repository.dart
-import 'dart:async';
-import 'package:chassis/chassis.dart';
+// lib/data/todo.dart
+class Todo {
+  const Todo({
+    required this.id,
+    required this.title,
+    required this.isCompleted,
+  });
 
-abstract interface class ICounterRepository {
-  @generateQueryHandler
-  Stream<int> watchCount();
+  final String id;
+  final String title;
+  final bool isCompleted;
 
-  @generateCommandHandler
-  Future<void> increment();
-
-  @generateCommandHandler
-  Future<void> reset();
+  Todo copyWith({
+    String? id,
+    String? title,
+    bool? isCompleted,
+  }) {
+    return Todo(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      isCompleted: isCompleted ?? this.isCompleted,
+    );
+  }
 }
 
-class InMemoryCounterRepository implements ICounterRepository {
-  final _controller = StreamController<int>.broadcast();
-  int _count = 0;
+// lib/data/todo_repository.dart
+import 'dart:async';
+import 'package:chassis/chassis.dart';
+import 'todo.dart';
 
-  InMemoryCounterRepository() {
-    _controller.add(_count);
+abstract interface class ITodoRepository {
+  @generateQueryHandler
+  Stream<List<Todo>> watchTodos();
+
+  @generateCommandHandler
+  Future<void> addTodo(String title);
+
+  @generateCommandHandler
+  Future<void> toggleTodo(String id);
+}
+
+class InMemoryTodoRepository implements ITodoRepository {
+  final _controller = StreamController<List<Todo>>.broadcast();
+  final List<Todo> _todos = [];
+  int _nextId = 0;
+
+  InMemoryTodoRepository() {
+    _controller.add(List.unmodifiable(_todos));
   }
 
   @override
-  Stream<int> watchCount() => _controller.stream;
+  Stream<List<Todo>> watchTodos() => _controller.stream;
 
   @override
-  Future<void> increment() async {
-    _count++;
-    _controller.add(_count);
+  Future<void> addTodo(String title) async {
+    final todo = Todo(
+      id: (_nextId++).toString(),
+      title: title,
+      isCompleted: false,
+    );
+    _todos.add(todo);
+    _controller.add(List.unmodifiable(_todos));
   }
 
   @override
-  Future<void> reset() async {
-    _count = 0;
-    _controller.add(_count);
+  Future<void> toggleTodo(String id) async {
+    final index = _todos.indexWhere((t) => t.id == id);
+    if (index != -1) {
+      _todos[index] = _todos[index].copyWith(
+        isCompleted: !_todos[index].isCompleted,
+      );
+      _controller.add(List.unmodifiable(_todos));
+    }
   }
 
   void dispose() {
@@ -351,59 +388,62 @@ class InMemoryCounterRepository implements ICounterRepository {
 Running `dart run build_runner build` generates:
 
 ```dart
-// lib/data/counter_repository.handlers.dart (generated)
+// lib/data/todo_repository.handlers.dart (generated)
 import 'package:chassis/chassis.dart';
-import 'counter_repository.dart';
+import 'todo.dart';
+import 'todo_repository.dart';
 
-class WatchCountQuery implements WatchQuery<int> {
-  const WatchCountQuery();
+class WatchTodosQuery implements WatchQuery<List<Todo>> {
+  const WatchTodosQuery();
 }
 
 @chassisHandler
-class WatchCountQueryHandler implements WatchHandler<WatchCountQuery, int> {
-  final ICounterRepository _repository;
-  WatchCountQueryHandler(this._repository);
+class WatchTodosQueryHandler implements WatchHandler<WatchTodosQuery, List<Todo>> {
+  final ITodoRepository _repository;
+  WatchTodosQueryHandler(this._repository);
 
   @override
-  Stream<int> watch(WatchCountQuery query) {
-    return _repository.watchCount();
+  Stream<List<Todo>> watch(WatchTodosQuery query) {
+    return _repository.watchTodos();
   }
 }
 
-class IncrementCommand implements Command<void> {
-  const IncrementCommand();
+class AddTodoCommand implements Command<void> {
+  const AddTodoCommand({required this.title});
+  final String title;
 }
 
 @chassisHandler
-class IncrementCommandHandler implements CommandHandler<IncrementCommand, void> {
-  final ICounterRepository _repository;
-  IncrementCommandHandler(this._repository);
+class AddTodoCommandHandler implements CommandHandler<AddTodoCommand, void> {
+  final ITodoRepository _repository;
+  AddTodoCommandHandler(this._repository);
 
   @override
-  Future<void> run(IncrementCommand command) async {
-    await _repository.increment();
+  Future<void> run(AddTodoCommand command) async {
+    await _repository.addTodo(command.title);
   }
 }
 
-class ResetCommand implements Command<void> {
-  const ResetCommand();
+class ToggleTodoCommand implements Command<void> {
+  const ToggleTodoCommand({required this.id});
+  final String id;
 }
 
 @chassisHandler
-class ResetCommandHandler implements CommandHandler<ResetCommand, void> {
-  final ICounterRepository _repository;
-  ResetCommandHandler(this._repository);
+class ToggleTodoCommandHandler implements CommandHandler<ToggleTodoCommand, void> {
+  final ITodoRepository _repository;
+  ToggleTodoCommandHandler(this._repository);
 
   @override
-  Future<void> run(ResetCommand command) async {
-    await _repository.reset();
+  Future<void> run(ToggleTodoCommand command) async {
+    await _repository.toggleTodo(command.id);
   }
 }
 ```
 
-The ViewModel and UI code remain identical to the manual version. They still dispatch `WatchCountQuery`, `IncrementCommand`, and `ResetCommand`, but those classes are now generated rather than hand-written. This demonstrates an important principle: code generation changes how you write infrastructure code, not how you consume it.
+The ViewModel and UI code remain identical to the manual version. They still dispatch `WatchTodosQuery`, `AddTodoCommand`, and `ToggleTodoCommand`, but those classes are now generated rather than hand-written. This demonstrates an important principle: code generation changes how you write infrastructure code, not how you consume it.
 
-The repository interface serves as the source of truth. Method signatures define commands and queries automatically, ensuring consistency between what the repository offers and what the application can request. This approach maintains full type safety—renaming a repository method updates the generated command or query name, causing compile errors in consuming ViewModels until you update them.
+The repository interface serves as the source of truth. Method signatures define commands and queries automatically, ensuring consistency between what the repository offers and what the application can request. Notice how the parameters (title, id) automatically become properties on the generated command classes. This approach maintains full type safety—renaming a repository method updates the generated command or query name, causing compile errors in consuming ViewModels until you update them.
 
 Implementing a "Use Case" pattern manually requires defining the class, registering it in a service locator, and injecting it into the ViewModel. Chassis automates this entire pipeline through annotations, reducing the code footprint dramatically while preserving architectural benefits.
 

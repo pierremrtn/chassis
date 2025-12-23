@@ -1,6 +1,6 @@
 # Quick Start
 
-This guide builds a complete counter application to introduce the Chassis framework. By implementing each component manually, you'll understand how data flows from the UI through business logic to the repository and back. This foundation prepares you to leverage code generation effectively in production applications. Expect to complete this tutorial in approximately 15 minutes, ending with a working application that demonstrates the core architectural patterns.
+This guide builds a complete todo list application to introduce the Chassis framework. By implementing each component manually, you'll understand how data flows from the UI through business logic to the repository and back. This foundation prepares you to leverage code generation effectively in production applications. Expect to complete this tutorial in approximately 15 minutes, ending with a working application that demonstrates the core architectural patterns.
 
 ## Installation
 
@@ -25,44 +25,84 @@ dev_dependencies:
   build_runner: ^2.4.0
 ```
 
-## The Counter Example
+## The Todo List Example
 
 ### Creating the Repository Interface
 
 In the simplest terms, a repository defines what data operations are possible without specifying how they're implemented. This abstraction enables testing and allows you to swap implementations—in-memory for development, Firebase for production, or a mock for tests—without changing business logic or UI code.
 
-Create `lib/data/counter_repository.dart`:
+First, create the data model in `lib/data/todo.dart`:
+
+```dart
+class Todo {
+  const Todo({
+    required this.id,
+    required this.title,
+    required this.isCompleted,
+  });
+
+  final String id;
+  final String title;
+  final bool isCompleted;
+
+  Todo copyWith({
+    String? id,
+    String? title,
+    bool? isCompleted,
+  }) {
+    return Todo(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      isCompleted: isCompleted ?? this.isCompleted,
+    );
+  }
+}
+```
+
+Then create `lib/data/todo_repository.dart`:
 
 ```dart
 import 'dart:async';
+import 'todo.dart';
 
-abstract interface class ICounterRepository {
-  Stream<int> watchCount();
-  Future<void> increment();
-  Future<void> reset();
+abstract interface class ITodoRepository {
+  Stream<List<Todo>> watchTodos();
+  Future<void> addTodo(String title);
+  Future<void> toggleTodo(String id);
 }
 
-class InMemoryCounterRepository implements ICounterRepository {
-  final _controller = StreamController<int>.broadcast();
-  int _count = 0;
+class InMemoryTodoRepository implements ITodoRepository {
+  final _controller = StreamController<List<Todo>>.broadcast();
+  final List<Todo> _todos = [];
+  int _nextId = 0;
 
-  InMemoryCounterRepository() {
-    _controller.add(_count);
+  InMemoryTodoRepository() {
+    _controller.add(List.unmodifiable(_todos));
   }
 
   @override
-  Stream<int> watchCount() => _controller.stream;
+  Stream<List<Todo>> watchTodos() => _controller.stream;
 
   @override
-  Future<void> increment() async {
-    _count++;
-    _controller.add(_count);
+  Future<void> addTodo(String title) async {
+    final todo = Todo(
+      id: (_nextId++).toString(),
+      title: title,
+      isCompleted: false,
+    );
+    _todos.add(todo);
+    _controller.add(List.unmodifiable(_todos));
   }
 
   @override
-  Future<void> reset() async {
-    _count = 0;
-    _controller.add(_count);
+  Future<void> toggleTodo(String id) async {
+    final index = _todos.indexWhere((t) => t.id == id);
+    if (index != -1) {
+      _todos[index] = _todos[index].copyWith(
+        isCompleted: !_todos[index].isCompleted,
+      );
+      _controller.add(List.unmodifiable(_todos));
+    }
   }
 
   void dispose() {
@@ -71,11 +111,11 @@ class InMemoryCounterRepository implements ICounterRepository {
 }
 ```
 
-The interface `ICounterRepository` declares what operations are available (watchCount, increment, reset) without specifying how they work. The implementation `InMemoryCounterRepository` uses a `StreamController` to broadcast count changes reactively. By programming to the interface, your application can work with any implementation—swap `InMemoryCounterRepository` for a Firebase version without changing your business logic.
+The interface `ITodoRepository` declares what operations are available (watchTodos, addTodo, toggleTodo) without specifying how they work. The implementation `InMemoryTodoRepository` uses a `StreamController` to broadcast todo list changes reactively. The `Todo` model uses the `copyWith` pattern to ensure immutability—rather than modifying todos in place, we create new instances with updated values. By programming to the interface, your application can work with any implementation—swap `InMemoryTodoRepository` for a Firebase version without changing your business logic.
 
 ### Writing Business Logic
 
-Now that you've defined your data layer, it's time to implement the business logic—the code that decides what happens when users interact with your application. This is where you define the actual behavior: what to do when a user increments the counter, what validation to apply before resetting, or how to transform data before presenting it to the UI.
+Now that you've defined your data layer, it's time to implement the business logic—the code that decides what happens when users interact with your application. This is where you define the actual behavior: what to do when a user adds a todo, what validation to apply before persisting, or how to transform data before presenting it to the UI.
 
 Business logic should be independent of Flutter widgets, making it fast to test and easy to reason about. By isolating this code from UI concerns, you can verify behavior without rendering widgets, navigate complex scenarios with simple unit tests, and refactor with confidence knowing tests will catch breaking changes.
 
@@ -95,71 +135,76 @@ See [Core Architecture](01_core_architecture.md#command-query-separation) for de
 
 In Chassis, business logic lives in stateless handlers classes that receive messages from the Mediator and coordinate with repositories to fulfill requests. Each handler focuses on a single responsibility: receive a message, execute business logic, call repositories as needed, and return results.
 
-Messages are pure data containers that carry intent. The `WatchCountQuery` message says "I want to watch the counter," while the `IncrementCommand` says "I want to increment the counter." The actual implementation lives in the corresponding handler.
+Messages are pure data containers that carry intent. The `WatchTodosQuery` message says "I want to watch the todo list," while the `AddTodoCommand` says "I want to add a todo." The actual implementation lives in the corresponding handler.
 
 > **Note:** In real-world applications, many Handlers are only wrappers around repository methods. The `@generateHandler` annotation allows to generates them automatically. We write them manually here to understand what the code generation produces. See [Code Generation](03_code_generation.md) to learn how to eliminate this boilerplate.
 
-Create `lib/domain/counter_handlers.dart`:
+Create `lib/domain/todo_handlers.dart`:
 
 ```dart
 import 'package:chassis/chassis.dart';
-import '../data/counter_repository.dart';
+import '../data/todo.dart';
+import '../data/todo_repository.dart';
 
-// Query to reactively watch the counter value
-class WatchCountQuery implements WatchQuery<int> {
-  const WatchCountQuery();
+// Query to reactively watch the todo list
+class WatchTodosQuery implements WatchQuery<List<Todo>> {
+  const WatchTodosQuery();
 }
 
 @chassisHandler // Enables automatic registration and type-safe extensions
-class WatchCountQueryHandler implements WatchHandler<WatchCountQuery, int> {
-  final ICounterRepository _repository;
+class WatchTodosQueryHandler implements WatchHandler<WatchTodosQuery, List<Todo>> {
+  final ITodoRepository _repository;
 
-  WatchCountQueryHandler(this._repository);
+  WatchTodosQueryHandler(this._repository);
 
   @override
-  Stream<int> watch(WatchCountQuery query) {
-    return _repository.watchCount();
+  Stream<List<Todo>> watch(WatchTodosQuery query) {
+    return _repository.watchTodos();
   }
 }
 
-// Command to increment the counter
-class IncrementCommand implements Command<void> {
-  const IncrementCommand();
+// Command to add a new todo
+class AddTodoCommand implements Command<void> {
+  const AddTodoCommand({required this.title});
+
+  final String title;
 }
 
 @chassisHandler
-class IncrementCommandHandler implements CommandHandler<IncrementCommand, void> {
-  final ICounterRepository _repository;
+class AddTodoCommandHandler implements CommandHandler<AddTodoCommand, void> {
+  final ITodoRepository _repository;
 
-  IncrementCommandHandler(this._repository);
+  AddTodoCommandHandler(this._repository);
 
   @override
-  Future<void> run(IncrementCommand command) async {
-    await _repository.increment();
+  Future<void> run(AddTodoCommand command) async {
+    await _repository.addTodo(command.title);
   }
 }
 
-// Command to reset the counter
-class ResetCommand implements Command<void> {
-  const ResetCommand();
+// Command to toggle todo completion status
+class ToggleTodoCommand implements Command<void> {
+  const ToggleTodoCommand({required this.id});
+
+  final String id;
 }
 
 @chassisHandler
-class ResetCommandHandler implements CommandHandler<ResetCommand, void> {
-  final ICounterRepository _repository;
+class ToggleTodoCommandHandler implements CommandHandler<ToggleTodoCommand, void> {
+  final ITodoRepository _repository;
 
-  ResetCommandHandler(this._repository);
+  ToggleTodoCommandHandler(this._repository);
 
   @override
-  Future<void> run(ResetCommand command) async {
-    await _repository.reset();
+  Future<void> run(ToggleTodoCommand command) async {
+    await _repository.toggleTodo(command.id);
   }
 }
 ```
 
-Notice the dependency injection pattern—each handler receives its repository through the constructor. This ensures testability and loose coupling, enabling testing handlers in isolation.
+Notice the dependency injection pattern—each handler receives its repository through the constructor. This ensures testability and loose coupling, enabling testing handlers in isolation. The commands carry the data they need—`AddTodoCommand` has a title, and `ToggleTodoCommand` has an id to identify which todo to toggle.
 
-While this counter example shows simple pass-through handlers, real applications contain validation, transformation, and coordination logic here. You might validate user input before persisting, combine data from multiple repositories, or apply business rules before returning results. This is where business complexity lives—not scattered across widgets, but concentrated in testable, framework-independent handlers.
+While this todo example shows simple pass-through handlers, real applications contain validation, transformation, and coordination logic here. You might validate that the title isn't empty before persisting, combine data from multiple repositories, or apply business rules before returning results. This is where business complexity lives—not scattered across widgets, but concentrated in testable, framework-independent handlers.
 
 The handler's logic is pure business code with no Flutter dependencies, making it fast and easy to test. See [Business Logic](02_business_logic.md#unit-testing-handlers) for detailed testing strategies and examples of more complex handler implementations.
 
@@ -178,26 +223,27 @@ Create `lib/app/app_mediator.dart`:
 
 ```dart
 import 'package:chassis/chassis.dart';
-import '../data/counter_repository.dart';
-import '../domain/counter_handlers.dart';
+import '../data/todo.dart';
+import '../data/todo_repository.dart';
+import '../domain/todo_handlers.dart';
 
 class AppMediator extends Mediator {
-  AppMediator({required ICounterRepository counterRepository}) {
-    registerQueryHandler(WatchCountQueryHandler(counterRepository));
-    registerCommandHandler(IncrementCommandHandler(counterRepository));
-    registerCommandHandler(ResetCommandHandler(counterRepository));
+  AppMediator({required ITodoRepository todoRepository}) {
+    registerQueryHandler(WatchTodosQueryHandler(todoRepository));
+    registerCommandHandler(AddTodoCommandHandler(todoRepository));
+    registerCommandHandler(ToggleTodoCommandHandler(todoRepository));
   }
 }
 
 // Extension methods provide type-safe access to operations
 extension AppMediatorExtensions on Mediator {
-  Stream<int> watchCount() => watch(WatchCountQuery());
-  Future<void> increment() => run(IncrementCommand());
-  Future<void> reset() => run(ResetCommand());
+  Stream<List<Todo>> watchTodos() => watch(WatchTodosQuery());
+  Future<void> addTodo(String title) => run(AddTodoCommand(title: title));
+  Future<void> toggleTodo(String id) => run(ToggleTodoCommand(id: id));
 }
 ```
 
-The extension methods transform generic message dispatching into a clean, type-safe API. Instead of `mediator.run(IncrementCommand())`, you call `mediator.increment()`. Your IDE autocompletes available operations, making the application's capabilities immediately discoverable.
+The extension methods transform generic message dispatching into a clean, type-safe API. Instead of `mediator.run(AddTodoCommand(title: title))`, you call `mediator.addTodo(title)`. Your IDE autocompletes available operations, making the application's capabilities immediately discoverable.
 
 This entire file —the Mediator class, handler registrations, and extension methods- is automatically generated from your `@chassisHandler` annotations. See [Code Generation](03_code_generation.md) to learn how to eliminate this boilerplate entirely.
 
@@ -205,135 +251,186 @@ This entire file —the Mediator class, handler registrations, and extension met
 
 The ViewModel transforms domain data into UI-ready state and handles user interactions by dispatching commands. It sits between the Mediator and the widget tree, translating business operations into state changes that widgets can observe.
 
-Create `lib/presentation/counter_view_model.dart`:
+Create `lib/presentation/todo_view_model.dart`:
 
 ```dart
 import 'package:chassis/chassis.dart';
 import 'package:chassis_flutter/chassis_flutter.dart';
-import '../domain/counter_handlers.dart';
+import '../data/todo.dart';
+import '../app/app_mediator.dart';
 
-class CounterState {
-  const CounterState({required this.count});
+class TodoState {
+  const TodoState({required this.todos});
 
-  final Async<int> count;
+  final Async<List<Todo>> todos;
 
-  CounterState copyWith({Async<int>? count}) {
-    return CounterState(count: count ?? this.count);
+  TodoState copyWith({Async<List<Todo>>? todos}) {
+    return TodoState(todos: todos ?? this.todos);
   }
 
-  static CounterState initial() {
-    return CounterState(count: Async.loading());
+  static TodoState initial() {
+    return TodoState(todos: Async.loading());
   }
 }
 
-sealed class CounterEvent {}
+sealed class TodoEvent {}
 
-class CounterResetEvent implements CounterEvent {
-  const CounterResetEvent();
+class TodoAddedEvent implements TodoEvent {
+  const TodoAddedEvent();
 }
 
-class CounterViewModel extends ViewModel<CounterState, CounterEvent> {
-  CounterViewModel(Mediator mediator)
-      : super(mediator, initial: CounterState.initial()) {
-    // Start watching the counter stream immediately
+class TodoViewModel extends ViewModel<TodoState, TodoEvent> {
+  TodoViewModel(Mediator mediator)
+      : super(mediator, initial: TodoState.initial()) {
+    // Start watching the todo list immediately
     watchStream(
-      mediator.watchCount(),
-      (asyncCount) => setState(state.copyWith(count: asyncCount)),
+      mediator.watchTodos(),
+      (asyncTodos) => setState(state.copyWith(todos: asyncTodos)),
     );
   }
 
-  void increment() {
-    runCommand(mediator.increment());
-  }
-
-  void reset() {
+  void addTodo(String title) {
     runCommand(
-      mediator.reset(),
-      onSuccess: (_) => sendEvent(CounterResetEvent()),
+      mediator.addTodo(title),
+      onSuccess: (_) => sendEvent(TodoAddedEvent()),
     );
+  }
+
+  void toggleTodo(String id) {
+    runCommand(mediator.toggleTodo(id));
   }
 }
 ```
 
-The ViewModel demonstrates Chassis's complete data flow cycle. The `watchStream()` call establishes a subscription to the repository's count stream through the Mediator. When the repository emits a new value, the ViewModel receives it and wraps it in `Async<T>`, then updates its state. The UI automatically rebuilds to reflect the new count.
+The ViewModel demonstrates Chassis's complete data flow cycle. The `watchStream()` call establishes a subscription to the repository's todo stream through the Mediator. When the repository emits a new list, the ViewModel receives it and wraps it in `Async<T>`, then updates its state. The UI automatically rebuilds to reflect the new todo list.
 
-When a user taps the increment button, the flow is:
-1. UI calls `viewModel.increment()`
-2. ViewModel calls `mediator.increment()` which dispatches the command
-3. Mediator routes to `IncrementCommandHandler`
-4. Handler calls `repository.increment()`
-5. Repository emits new count through its stream
+When a user adds a todo, the flow is:
+1. UI calls `viewModel.addTodo(title)`
+2. ViewModel calls `mediator.addTodo(title)` which dispatches the command
+3. Mediator routes to `AddTodoCommandHandler`
+4. Handler calls `repository.addTodo(title)`
+5. Repository emits new todo list through its stream
 6. ViewModel's `watchStream` callback receives the update
-7. UI rebuilds with new count
+7. UI rebuilds with new todo list
 
-State immutability ensures predictable behavior — the `copyWith` pattern creates new state objects rather than mutating existing ones. The `Async<int>` wrapper handles loading, data, and error states automatically, eliminating manual state checking in the UI. Events provide a channel for one-time occurrences like showing a snackbar, separate from persistent state.
+State immutability ensures predictable behavior — the `copyWith` pattern creates new state objects rather than mutating existing ones. The `Async<List<Todo>>` wrapper handles loading, data, and error states automatically, eliminating manual state checking in the UI. Events provide a channel for one-time occurrences like clearing the input field or showing a snackbar, separate from persistent state.
 
 ### Building the UI
 
 The UI layer observes state changes and dispatches user interactions to the ViewModel. The `AsyncBuilder` widget automatically renders appropriate UI based on whether data is loading, available, or errored. The `ConsumerMixin` handles event subscriptions, ensuring proper cleanup when widgets dispose.
 
-Create `lib/presentation/counter_screen.dart`:
+Create `lib/presentation/todo_screen.dart`:
 
 ```dart
 import 'package:flutter/material.dart';
 import 'package:chassis_flutter/chassis_flutter.dart';
-import 'counter_view_model.dart';
+import '../data/todo.dart';
+import 'todo_view_model.dart';
 
 // We assume the ViewModel is injected above this widget
-class CounterScreen extends StatefulWidget {
-  const CounterScreen({Key? key}) : super(key: key);
+class TodoScreen extends StatefulWidget {
+  const TodoScreen({Key? key}) : super(key: key);
 
   @override
-  State<CounterScreen> createState() => _CounterScreenState();
+  State<TodoScreen> createState() => _TodoScreenState();
 }
 
-class _CounterScreenState extends State<CounterScreen> with ConsumerMixin {
+class _TodoScreenState extends State<TodoScreen> with ConsumerMixin {
+  final _textController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
 
-    // ConsumerMixin provides easy to uses method to subscribes to view-models events
-    onEvent<CounterViewModel, CounterEvent>((event) {
-      if (event is CounterResetEvent) {
+    // ConsumerMixin provides easy to use method to subscribe to view-model events
+    onEvent<TodoViewModel, TodoEvent>((event) {
+      if (event is TodoAddedEvent) {
+        _textController.clear();
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Counter reset to 0')),
+          const SnackBar(content: Text('Todo added')),
         );
       }
     });
   }
 
   @override
+  void dispose() {
+    _textController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final viewModel = context.watch<CounterViewModel>();
+    final viewModel = context.watch<TodoViewModel>();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Counter Example')),
-      body: Center(
-        child: AsyncBuilder<int>(
-          state: viewModel.state.count,
-          builder: (context, count) {
-            return Text(
-              '$count',
-              style: Theme.of(context).textTheme.displayLarge,
-            );
-          },
-          loadingBuilder: (context) => const CircularProgressIndicator(),
-          errorBuilder: (context, error) => Text('Error: $error'),
-        ),
-      ),
-      floatingActionButton: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
+      appBar: AppBar(title: const Text('Todo List')),
+      body: Column(
         children: [
-          FloatingActionButton(
-            onPressed: viewModel.increment,
-            heroTag: 'increment',
-            child: const Icon(Icons.add),
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _textController,
+                    decoration: const InputDecoration(
+                      hintText: 'Enter todo title',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed: () {
+                    final title = _textController.text.trim();
+                    if (title.isNotEmpty) {
+                      viewModel.addTodo(title);
+                    }
+                  },
+                  child: const Text('Add'),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 8),
-          FloatingActionButton(
-            onPressed: viewModel.reset,
-            heroTag: 'reset',
-            child: const Icon(Icons.refresh),
+          Expanded(
+            child: AsyncBuilder<List<Todo>>(
+              state: viewModel.state.todos,
+              builder: (context, todos) {
+                if (todos.isEmpty) {
+                  return const Center(
+                    child: Text('No todos yet. Add one above!'),
+                  );
+                }
+
+                return ListView.builder(
+                  itemCount: todos.length,
+                  itemBuilder: (context, index) {
+                    final todo = todos[index];
+                    return ListTile(
+                      leading: Checkbox(
+                        value: todo.isCompleted,
+                        onChanged: (_) => viewModel.toggleTodo(todo.id),
+                      ),
+                      title: Text(
+                        todo.title,
+                        style: TextStyle(
+                          decoration: todo.isCompleted
+                              ? TextDecoration.lineThrough
+                              : null,
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+              loadingBuilder: (context) => const Center(
+                child: CircularProgressIndicator(),
+              ),
+              errorBuilder: (context, error) => Center(
+                child: Text('Error: $error'),
+              ),
+            ),
           ),
         ],
       ),
@@ -342,7 +439,7 @@ class _CounterScreenState extends State<CounterScreen> with ConsumerMixin {
 }
 ```
 
-The `AsyncBuilder` widget eliminates manual state checking. It automatically renders the appropriate UI based on whether data is loading, available, or errored, simplifying your build methods significantly. The `ConsumerMixin` handles event subscriptions and ensures proper cleanup when the widget disposes, preventing memory leaks.
+The `AsyncBuilder` widget eliminates manual state checking. It automatically renders the appropriate UI based on whether data is loading, available, or errored, simplifying your build methods significantly. The `ConsumerMixin` handles event subscriptions and ensures proper cleanup when the widget disposes, preventing memory leaks. The `TextEditingController` is cleared automatically when a todo is added via the `TodoAddedEvent`, demonstrating how events coordinate UI actions separate from state updates.
 
 ### Putting It All Together
 
@@ -353,31 +450,29 @@ Create `lib/main.dart`:
 ```dart
 import 'package:flutter/material.dart';
 import 'package:chassis_flutter/chassis_flutter.dart';
-import 'data/counter_repository.dart';
+import 'data/todo_repository.dart';
 import 'app/app_mediator.dart';
-import 'presentation/counter_screen.dart';
-import 'presentation/counter_view_model.dart';
-
+import 'presentation/todo_screen.dart';
+import 'presentation/todo_view_model.dart';
 
 // We declare the mediator globally so all our app can access it
 late final AppMediator mediator;
 
 void initializeDependencies() {
   // Initialize dependencies
-  final counterRepository = InMemoryCounterRepository();
-  mediator = AppMediator(counterRepository: counterRepository);
+  final todoRepository = InMemoryTodoRepository();
+  mediator = AppMediator(todoRepository: todoRepository);
 }
 
 void main() {
-
-  initializedDependencies();
+  initializeDependencies();
 
   runApp(
     MaterialApp(
-      title: 'Counter Example',
-      home: ViewModelProvider<CounterViewModel>(
-        create: (_) => CounterViewModel(mediator),
-        child: const CounterScreen(),
+      title: 'Todo List',
+      home: ViewModelProvider<TodoViewModel>(
+        create: (_) => TodoViewModel(mediator),
+        child: const TodoScreen(),
       ),
     ),
   );
@@ -402,7 +497,7 @@ The key benefits of this architecture:
 - **Maintainability**: Business logic lives in handlers, not spread across widgets
 - **Scalability**: Adding features follows the same pattern, maintaining consistency
 
-Your application's capabilities are explicitly declared — to understand what the counter can do, examine [counter_handlers.dart](lib/domain/counter_handlers.dart) to see `WatchCountQuery`, `IncrementCommand`, and `ResetCommand`. This explicit catalog of operations helps new team members quickly understand the system.
+Your application's capabilities are explicitly declared — to understand what the todo list can do, examine [todo_handlers.dart](lib/domain/todo_handlers.dart) to see `WatchTodosQuery`, `AddTodoCommand`, and `ToggleTodoCommand`. This explicit catalog of operations helps new team members quickly understand the system.
 
 ## Next Steps
 

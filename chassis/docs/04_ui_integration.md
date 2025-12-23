@@ -149,7 +149,7 @@ class ExampleViewModel extends ViewModel<ExampleState, ExampleEvent> {
 }
 ```
 
-The `watch()` method subscribes to a WatchQuery stream, calling the provided callback whenever the stream emits a new value. Subscription management happens automatically—the ViewModel disposes subscriptions when it disposes, preventing memory leaks. Use watch for data that changes over time, like real-time counters, presence indicators, or collaborative document state.
+The `watch()` method subscribes to a WatchQuery stream, calling the provided callback whenever the stream emits a new value. Subscription management happens automatically—the ViewModel disposes subscriptions when it disposes, preventing memory leaks. Use watch for data that changes over time, like todo lists, presence indicators, or collaborative document state.
 
 The `read()` method executes a ReadQuery once and calls the callback with the result wrapped in Async<T>. Use this for initial data loads or one-off fetches where you don't need ongoing updates. The callback receives the result whether it succeeds or fails, allowing you to update state appropriately in both cases.
 
