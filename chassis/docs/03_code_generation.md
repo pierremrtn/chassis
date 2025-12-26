@@ -1,12 +1,96 @@
 # Code Generation
 
-Code generation in Chassis automates the creation of handlers and mediator wiring for standard operations. This section demonstrates how to reduce boilerplate by approximately 90% while preserving type safety and testability. By the end, you'll know which annotations to use, how to configure the build process, and how the generated code integrates seamlessly with your manual implementations when business logic requires it.
+Code generation in Chassis automates the mediator wiring and the creation of handlers for standard operations. This section demonstrates how to reduce boilerplate of your application using `chassis_builder` while preserving type safety and testability. By the end, you'll know which annotations to use, how to configure the build process, and how the generated code integrates seamlessly with your manual implementations when business logic requires it.
 
-## The 90/10 Principle Revisited
+## Type-safe mediator generation
+
+`chassis_builder` generates a type-safe wrapper around the default mediator provided by `chassis`. This wrapper automate the handler registration and provides type-safe extensions to the mediator class that improves command/queries discoverability and dx.
+
+### Automated Dependency Injection
+
+The generator creates a Mediator subclass with a constructor accepting all required repositories and services. Handler instantiation and registration happens automatically in the constructor, eliminating the manual registration shown in the Quick Start guide.
+
+```dart
+@chassisHandler
+class GetUserHandler implements QueryHandler<GetUserQuery, User> {
+  final IUserRepository _userRepository;
+  GetUserHandler(this._userRepository);
+
+  @override
+  Future<Order> run(CreateOrderCommand command) async {
+    return await _userRepository.getUser(
+      command.userId,
+    );
+  }
+}
+
+
+@chassisHandler
+class CreateOrderHandler implements CommandHandler<CreateOrderCommand, Order> {
+  final IOrderRepository _orderRepository;
+  CreateOrderHandler(this._orderRepository);
+
+  @override
+  Future<Order> run(CreateOrderCommand command) async {
+    return await _orderRepository.createOrder(
+      command.userId,
+      command.items,
+    );
+  }
+}
+
+// Generated Mediator (in app_mediator_impl.dart)
+class AppMediator extends Mediator {
+  AppMediator({
+    required IUserRepository userRepository,
+    required IOrderRepository orderRepository,
+  }) {
+    // Auto-generated handler registration
+    registerQueryHandler(GetUserQueryHandler(userRepository));
+    registerCommandHandler(CreateOrderHandler(orderRepository));
+  }
+}
+```
+
+The generator scans all annotated handlers to determine constructor parameters. This eliminates manual registration boilerplate while maintaining compile-time type safety. If you add a new handler with `@chassisHandler`, rebuilding updates the Mediator constructor to require that repository, causing compile errors until you provide it. This catches wiring mistakes at compile time rather than runtime.
+
+### Type-Safe Extension Methods
+
+The generator also creates extension methods on the Mediator for each command and query, providing an IDE-friendly, discoverable API. These methods serve as alternatives to the generic `run()`, `read()`, and `watch()` methods, offering better autocomplete and clearer code.
+
+```dart
+// Generated extension methods
+extension AppMediatorExtensions on Mediator {
+  // Instead of: mediator.read(GetUserQuery(userId: '123'))
+  Future<User> getUserQuery(String userId) =>
+      read(GetUserQuery(userId: userId));
+
+  // Instead of: mediator.watch(WatchUserQuery(userId: '123'))
+  Stream<User> watchUserQuery(String userId) =>
+      watch(WatchUserQuery(userId: userId));
+}
+
+// Usage in ViewModel
+class UserViewModel extends ViewModel<UserState, UserEvent> {
+  void loadUser(String userId) {
+    // Using mediator extension method with run()
+    run(
+      mediator.getUser(userId: userId),
+      onState: (asyncUser) {
+        setState(state.copyWith(user: asyncUser));
+      },
+    );
+  }
+}
+```
+
+Extension methods improve discoverability through IDE autocomplete. Typing `mediator.` shows all available operations as methods, making it easy to discover what the application can do. This creates a type-safe internal SDK without manual registration overhead, one of the key benefits of code generation in Chassis.
+
+## Generating simple CRUD Handlers
 
 Most applications consist of predictable CRUD operations—fetching a user profile, updating settings, listing products, deleting items. These operations follow a consistent pattern: receive parameters, call a repository method, return the result. There is no complex validation, no multi-service orchestration, no conditional logic. They exist purely to satisfy the architectural requirement that ViewModels cannot call repositories directly.
 
-Code generation targets this 90% of repetitive code, freeing developers to focus on the 10% that contains unique business logic like payment processing, order workflows, or complex calculations. The framework remains extensible—manual handlers coexist seamlessly with generated ones, all registered in the same Mediator.
+Chassis's code generation allow generating this repetitive code automatically, freeing developers to focus on the 10% that contains unique business logic like payment processing, order workflows, or complex calculations. The framework remains extensible—manual handlers coexist seamlessly with generated ones, all registered in the same Mediator.
 
 Compare the manual approach from the Quick Start guide with the generated approach:
 
@@ -150,106 +234,6 @@ class CreateUserCommandHandler implements CommandHandler<CreateUserCommand, User
 ```
 
 The `@chassisHandler` annotation marks the generated handler for automatic registration in the Mediator, connecting the entire pipeline without manual intervention.
-
-### @chassisHandler for Manual Handlers
-
-Use `@chassisHandler` to mark manually written handlers for automatic registration. This allows mixing generated and manual handlers in the same Mediator, providing flexibility for the 10% of operations requiring custom business logic.
-
-```dart
-// Manually written handler for complex logic
-@chassisHandler
-class CreateOrderHandler implements CommandHandler<CreateOrderCommand, Order> {
-  final IOrderRepository _orderRepository;
-  final IInventoryService _inventoryService;
-  final IPaymentGateway _paymentGateway;
-
-  CreateOrderHandler({
-    required IOrderRepository orderRepository,
-    required IInventoryService inventoryService,
-    required IPaymentGateway paymentGateway,
-  })  : _orderRepository = orderRepository,
-        _inventoryService = inventoryService,
-        _paymentGateway = paymentGateway;
-
-  @override
-  Future<Order> run(CreateOrderCommand command) async {
-    // Complex orchestration logic
-    // Check inventory, process payment, create order, send notifications
-    // ...
-  }
-}
-```
-
-The `@chassisHandler` annotation ensures this handler is included in the generated Mediator alongside auto-generated handlers, creating a unified system where both approaches work together seamlessly.
-
-## The Generated Mediator
-
-### Automated Dependency Injection
-
-The generator creates a Mediator subclass with a constructor accepting all required repositories and services. Handler instantiation and registration happens automatically in the constructor, eliminating the manual registration shown in the Quick Start guide.
-
-```dart
-// Your repository interfaces
-abstract interface class IUserRepository {
-  @generateQueryHandler
-  Future<User> getUser(String userId);
-}
-
-abstract interface class IOrderRepository {
-  @generateCommandHandler
-  Future<Order> createOrder(String userId, List<OrderItem> items);
-}
-
-// Generated Mediator (in app_mediator_impl.dart)
-class AppMediator extends Mediator {
-  AppMediator({
-    required IUserRepository userRepository,
-    required IOrderRepository orderRepository,
-  }) {
-    // Auto-generated handler registration
-    registerQueryHandler(GetUserQueryHandler(userRepository));
-    registerCommandHandler(CreateOrderCommandHandler(orderRepository));
-  }
-}
-```
-
-The generator scans all annotated repositories and handlers to determine constructor parameters. This eliminates manual registration boilerplate while maintaining compile-time type safety. If you add a new repository method with `@generateQueryHandler`, rebuilding updates the Mediator constructor to require that repository, causing compile errors until you provide it. This catches wiring mistakes at compile time rather than runtime.
-
-### Type-Safe Extension Methods
-
-The generator creates extension methods on the Mediator for each command and query, providing an IDE-friendly, discoverable API. These methods serve as alternatives to the generic `run()`, `read()`, and `watch()` methods, offering better autocomplete and clearer code.
-
-```dart
-// Generated extension methods
-extension AppMediatorExtensions on Mediator {
-  // Instead of: mediator.read(GetUserQuery(userId: '123'))
-  Future<User> getUserQuery(String userId) =>
-      read(GetUserQuery(userId: userId));
-
-  // Instead of: mediator.watch(WatchUserQuery(userId: '123'))
-  Stream<User> watchUserQuery(String userId) =>
-      watch(WatchUserQuery(userId: userId));
-
-  // Instead of: mediator.run(CreateUserCommand(name: 'John', email: 'john@example.com'))
-  Future<User> createUserCommand(String name, String email) =>
-      run(CreateUserCommand(name: name, email: email));
-}
-
-// Usage in ViewModel
-class UserViewModel extends ViewModel<UserState, UserEvent> {
-  void loadUser(String userId) {
-    // Using standard query dispatch
-    read(GetUserQuery(userId: userId), (asyncUser) {
-      setState(state.copyWith(user: asyncUser));
-    });
-
-    // Or using generated extension method (alternative syntax)
-    // mediator.getUserQuery(userId).then((user) => ...);
-  }
-}
-```
-
-Extension methods improve discoverability through IDE autocomplete. Typing `mediator.` shows all available operations as methods, making it easy to discover what the application can do. This creates a type-safe internal SDK without manual registration overhead, one of the key benefits of code generation in Chassis.
 
 ## Build Configuration and Workflow
 
@@ -473,8 +457,9 @@ The generator prevents wiring errors at compile time, catching issues during dev
 
 ## Summary
 
-Code generation reduces boilerplate by approximately 90% for standard CRUD operations while maintaining type safety and architectural enforcement. Annotations like `@generateQueryHandler` and `@generateCommandHandler` transform repository methods into complete query-handler or command-handler pairs automatically. The generated Mediator handles dependency injection and registration without manual intervention. Type-safe extension methods improve discoverability through IDE autocomplete.
+Code generation reduces boilerplate by for standard CRUD operations while maintaining type safety and architectural enforcement. Annotations like `@generateQueryHandler` and `@generateCommandHandler` transform repository methods into complete query-handler or command-handler pairs automatically. The generated Mediator handles dependency injection and registration without manual intervention. Type-safe extension methods improve discoverability through IDE autocomplete.
 
-The 90/10 principle guides when to generate versus when to implement manually, as discussed in [Business Logic](02_business_logic.md#when-to-write-manually-vs-generate). Simple delegation benefits from generation, while complex orchestration requires manual implementation. The two approaches coexist seamlessly through the `@chassisHandler` annotation, which registers manual handlers alongside generated ones.
+
+Simple delegation benefits from generation, while complex orchestration requires manual implementation. The two approaches coexist seamlessly through the `@chassisHandler` annotation, which registers manual handlers alongside generated ones.
 
 With business logic automated through code generation, the next section focuses on connecting this architecture to Flutter's widget tree through ViewModels and reactive widgets in [UI Integration](04_ui_integration.md).

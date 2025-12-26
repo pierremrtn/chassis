@@ -1,6 +1,6 @@
 # Business Logic
 
-This guide explores the Application layer—where your business logic lives. While code generation automates 90% of standard operations, understanding manual implementation is essential for the complex scenarios that inevitably arise in production applications. By the end, you'll know how to write handlers for sophisticated workflows, test them in complete isolation, and compose them to handle intricate business requirements. This knowledge forms the foundation for making informed decisions about when to leverage automation and when to implement logic by hand.
+This guide explores the Application layer—where your business logic lives. While Chassis is able to automates 90% of standard CRUD operations, understanding manual implementation is essential for the complex scenarios that inevitably arise in production applications. By the end, you'll know how to write handlers for sophisticated workflows, test them in complete isolation, and compose them to handle intricate business requirements. This knowledge forms the foundation for making informed decisions about when to leverage automation and when to implement logic by hand.
 
 ## Anatomy of Messages
 
@@ -47,17 +47,45 @@ Commands should be self-contained, carrying all the information needed to execut
 
 Queries retrieve data without causing side effects, adhering to the Command-Query Separation principle discussed in [Core Architecture](01_core_architecture.md#command-query-separation). Chassis provides two query types based on consumption pattern. Use ReadQuery for one-time data fetches and WatchQuery for reactive data streams.
 
-ReadQuery suits scenarios where you need data exactly once. Initial screen loads, form submission confirmations, and one-off data lookups all fit this pattern. The operation completes, returns a result, and finishes. There is no ongoing subscription to maintain or clean up.
+In modern reactive Flutter applications, most data should come from WatchQuery streams to keep the UI automatically synchronized with data changes. However, ReadQuery remains useful for specific scenarios: non-interactive operations like report generation or data exports that produce files, one-time validation checks that don't affect displayed data, or initial bootstrapping operations that run before the UI renders. If the data might change and the UI should reflect those changes, prefer WatchQuery.
 
 ```dart
-class GetUserProfileQuery implements ReadQuery<UserProfile> {
-  const GetUserProfileQuery({required this.userId});
+// One-time data export operation
+class ExportUserDataQuery implements ReadQuery<ExportFile> {
+  const ExportUserDataQuery({
+    required this.userId,
+    required this.format,
+  });
+
+  final String userId;
+  final ExportFormat format; // CSV, JSON, PDF
+}
+
+// Validation check that doesn't need reactivity
+class ValidatePromoCodeQuery implements ReadQuery<PromoCodeValidation> {
+  const ValidatePromoCodeQuery({
+    required this.code,
+    required this.userId,
+  });
+
+  final String code;
+  final String userId;
+}
+```
+
+WatchQuery handles reactive data streams that update over time. This should be your default choice for any data displayed in the UI. User profiles, product lists, shopping carts, notification counts, and search results all benefit from automatic updates when underlying data changes. The stream remains active until explicitly cancelled, keeping the UI synchronized with the data layer without manual refresh logic.
+
+```dart
+// User profile that updates when data changes
+class WatchUserProfileQuery implements WatchQuery<UserProfile> {
+  const WatchUserProfileQuery({required this.userId});
 
   final String userId;
 }
 
-class SearchProductsQuery implements ReadQuery<List<Product>> {
-  const SearchProductsQuery({
+// Product search results that update as inventory changes
+class WatchProductSearchQuery implements WatchQuery<List<Product>> {
+  const WatchProductSearchQuery({
     required this.searchTerm,
     this.category,
     this.maxPrice,
@@ -67,19 +95,10 @@ class SearchProductsQuery implements ReadQuery<List<Product>> {
   final String? category;
   final double? maxPrice;
 }
-```
 
-WatchQuery handles reactive data streams that update over time. Real-time dashboards, chat messages, live counters, and collaborative editing all benefit from continuous updates. The stream remains active until explicitly cancelled, pushing new values as the underlying data changes.
-
-```dart
-class WatchUserPresenceQuery implements WatchQuery<PresenceStatus> {
-  const WatchUserPresenceQuery({required this.userId});
-
-  final String userId;
-}
-
-class WatchNotificationCountQuery implements WatchQuery<int> {
-  const WatchNotificationCountQuery({required this.userId});
+// Shopping cart that updates when items are added/removed
+class WatchCartQuery implements WatchQuery<ShoppingCart> {
+  const WatchCartQuery({required this.userId});
 
   final String userId;
 }
@@ -89,6 +108,8 @@ The type system enforces correct usage. Attempting to watch a ReadQuery results 
 
 ## The Handler Contract
 
+Handlers are plain Dart classes receiving and processing commands and queries. They are stateless and testable in complete isolation from the UI and the framework, allowing for pure logic verification with no Flutter dependencies. This is one of the key testability benefits of the Chassis architecture.
+
 ### CommandHandler Structure
 
 A CommandHandler implements the `CommandHandler<C, R>` interface, where `C` is the command type and `R` is the return type. Handlers receive dependencies via constructor injection, following the Dependency Inversion Principle from the layered architecture. This pattern keeps handlers testable and prevents them from creating their own dependencies.
@@ -97,6 +118,7 @@ For simple handlers with a single dependency, the `extends` syntax with a lambda
 
 ```dart
 // Simple handler using extends (single dependency)
+@chassisHandler
 class LogoutHandler extends CommandHandler<LogoutCommand, void> {
   LogoutHandler(IAuthRepository authRepository)
       : super((command) async {
@@ -105,6 +127,7 @@ class LogoutHandler extends CommandHandler<LogoutCommand, void> {
 }
 
 // Complex handler using implements (multiple dependencies)
+@chassisHandler
 class CreateOrderHandler implements CommandHandler<CreateOrderCommand, Order> {
   final IOrderRepository _orderRepository;
   final IInventoryService _inventoryService;
@@ -196,6 +219,7 @@ class GetUserProfileHandler implements ReadHandler<GetUserProfileQuery, UserProf
 }
 
 // WatchHandler - Reactive stream
+@chassisHandler
 class WatchUserPresenceHandler implements WatchHandler<WatchUserPresenceQuery, PresenceStatus> {
   final IRealtimeService _realtimeService;
   final IUserRepository _userRepository;
@@ -222,7 +246,7 @@ The WatchHandler's async generator pattern (`async*` and `yield`) provides elega
 
 Handlers receive dependencies through constructors, not through service locators or global singletons. This explicit dependency declaration improves testability by making dependencies visible and mockable. It also prevents the hidden coupling that service locators introduce, where a class's dependencies are only discoverable by reading its implementation.
 
-The Mediator construction site becomes your composition root—the single place where you wire together your entire dependency graph. This pattern is sometimes called "poor man's dependency injection" because it requires no framework, just constructors and interface types.
+The Mediator construction site becomes your composition root—the single place where you wire together your entire dependency graph. In a real-world application, the `AppMediator` (alongside others useful extensions) is automatically generated by Chassis thank to the `@chassisHandler` annotation.
 
 ```dart
 // Dependency composition at app startup
@@ -257,8 +281,6 @@ class AppMediator extends Mediator {
   }
 }
 ```
-
-Handlers are plain Dart classes receiving dependencies via constructor injection. They are testable in complete isolation from the UI and the framework, allowing for pure logic verification with no Flutter dependencies. This is one of the key testability benefits of the Chassis architecture.
 
 ## Testing Strategy
 
@@ -433,167 +455,6 @@ void main() {
 ```
 
 Integration tests catch wiring errors that unit tests miss. They verify that commands route to the correct handlers and that the Mediator's type resolution works as expected. These tests run quickly because they use mocks rather than real infrastructure.
-
-### Testing ViewModels
-
-ViewModels are tested by mocking the Mediator interface, allowing you to verify that ViewModels dispatch correct commands and queries, then update state appropriately based on results. This isolates ViewModel logic from handler implementation and infrastructure concerns.
-
-```dart
-// test/view_models/user_view_model_test.dart
-import 'package:test/test.dart';
-import 'package:mocktail/mocktail.dart';
-
-class MockMediator extends Mock implements Mediator {}
-
-void main() {
-  late MockMediator mockMediator;
-  late UserViewModel viewModel;
-
-  setUp(() {
-    mockMediator = MockMediator();
-    viewModel = UserViewModel(mockMediator);
-  });
-
-  test('createUser dispatches CreateUserCommand and updates state on success', () async {
-    // Arrange
-    final user = User(id: 'user123', name: 'John', email: 'john@example.com');
-
-    when(() => mockMediator.run<User>(any<CreateUserCommand>()))
-        .thenAnswer((_) async => user);
-
-    // Act
-    viewModel.createUser('John', 'john@example.com');
-    await Future.delayed(Duration.zero); // Allow async operation to complete
-
-    // Assert
-    expect(viewModel.state.user, isA<AsyncData<User>>());
-    expect(viewModel.state.user.valueOrNull, equals(user));
-    verify(() => mockMediator.run(any<CreateUserCommand>())).called(1);
-  });
-
-  test('createUser updates state to error when command fails', () async {
-    // Arrange
-    final error = Exception('Network error');
-
-    when(() => mockMediator.run<User>(any<CreateUserCommand>()))
-        .thenThrow(error);
-
-    // Act
-    viewModel.createUser('John', 'john@example.com');
-    await Future.delayed(Duration.zero);
-
-    // Assert
-    expect(viewModel.state.user, isA<AsyncError<User>>());
-    expect(viewModel.state.user.errorOrNull, equals(error));
-  });
-}
-```
-
-Mocking the Mediator isolates ViewModel tests from business logic. The test verifies rendering and interaction patterns without executing real commands or queries. For more on ViewModel testing in the context of Flutter widgets, see [UI Integration](04_ui_integration.md#widget-testing).
-
-## When to Write Manually vs Generate
-
-### The 90/10 Principle
-
-Code generation excels at standard CRUD operations that map directly from repository methods to handlers. These operations follow predictable patterns: receive parameters, call a repository method, return the result. Manually implementing these handlers provides no additional value—it simply adds boilerplate that must be maintained.
-
-Manual implementation becomes warranted when business logic exceeds simple delegation. Complex orchestration involving multiple services, transaction management across boundaries, or cross-cutting business rules all benefit from explicit implementation. Think of generation as scaffolding for common patterns, and manual coding as the escape hatch for complexity that requires human judgment.
-
-Start with code generation for initial development velocity. The annotations quickly produce working handlers that cover standard operations. Refactor to manual handlers when business logic complexity increases beyond simple delegation. This evolutionary approach prevents premature complexity while maintaining flexibility.
-
-### Use Code Generation When
-
-Code generation is ideal for handlers that simply delegate to a single repository method with parameter pass-through. For example, fetching a user by ID requires no additional logic beyond calling the repository. Similarly, incrementing a counter or updating a status field involves straightforward delegation.
-
-```dart
-// Perfect candidate for generation
-abstract interface class IUserRepository {
-  @generateQueryHandler
-  Future<User> getUser(String id);
-
-  @generateCommandHandler
-  Future<void> updateUserStatus(String id, UserStatus status);
-}
-```
-
-The generated handlers add no business logic—they exist purely to satisfy the architectural requirement that ViewModels cannot call repositories directly. Automating this boilerplate eliminates transcription errors and ensures consistency. The relationship between repository methods and handlers remains clear and maintainable.
-
-### Use Manual Implementation When
-
-Complex orchestration demands manual handlers. When a single command must coordinate multiple repositories or services—checking inventory, processing payment, creating an order, sending notifications—the business logic is too intricate for generation. Each step may have conditional logic, error handling, or compensating transactions that require explicit control.
-
-```dart
-// Requires manual implementation - complex orchestration
-class CreateOrderHandler implements CommandHandler<CreateOrderCommand, Order> {
-  final IOrderRepository _orderRepository;
-  final IInventoryService _inventoryService;
-  final IPaymentGateway _paymentGateway;
-  final INotificationService _notificationService;
-
-  CreateOrderHandler({
-    required IOrderRepository orderRepository,
-    required IInventoryService inventoryService,
-    required IPaymentGateway paymentGateway,
-    required INotificationService notificationService,
-  })  : _orderRepository = orderRepository,
-        _inventoryService = inventoryService,
-        _paymentGateway = paymentGateway,
-        _notificationService = notificationService;
-
-  @override
-  Future<Order> run(CreateOrderCommand command) async {
-    // 1. Validate business rules
-    if (command.items.isEmpty) {
-      throw InvalidOrderException('Order must contain at least one item');
-    }
-
-    // 2. Check inventory across all items
-    final available = await _inventoryService.checkAvailability(command.items);
-    if (!available) {
-      throw InsufficientInventoryException();
-    }
-
-    // 3. Calculate total with business rules (discounts, taxes)
-    final total = _calculateTotal(command.items, command.userId);
-
-    // 4. Process payment with retry logic
-    PaymentResult? paymentResult;
-    try {
-      paymentResult = await _paymentGateway.charge(
-        userId: command.userId,
-        amount: total,
-      );
-    } catch (e) {
-      // Compensating transaction: release inventory
-      await _inventoryService.releaseReservation(command.items);
-      rethrow;
-    }
-
-    // 5. Create order
-    final order = await _orderRepository.create(
-      userId: command.userId,
-      items: command.items,
-      shippingAddress: command.shippingAddress,
-      paymentId: paymentResult.transactionId,
-      total: total,
-    );
-
-    // 6. Send notifications (fire and forget)
-    unawaited(_notificationService.sendOrderConfirmation(order));
-
-    return order;
-  }
-
-  double _calculateTotal(List<OrderItem> items, String userId) {
-    // Complex business logic for pricing
-    // ...
-  }
-}
-```
-
-Transaction management across multiple data sources requires explicit control. Automatic code generation cannot infer rollback strategies or compensating transactions when operations fail partway through. Cross-cutting business rules that span multiple domains benefit from manual implementation. A permission check applying to several commands should live in shared middleware or a base handler, not duplicated across generated code.
-
-A single CommandHandler can be triggered from multiple ViewModels without code duplication. The logic lives in one place and is reused by reference to the Command type, promoting consistency and maintainability.
 
 ## Summary
 

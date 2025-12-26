@@ -176,7 +176,7 @@ class UserViewModel extends ViewModel<UserState, UserEvent> {
   UserViewModel(Mediator mediator) : super(mediator, initial: UserState.initial());
 
   void createUser(String name, String email) {
-    run(CreateUserCommand(name: name, email: email), (_) {});
+    run(mediator.createUser(name: name, email: email));
   }
 }
 ```

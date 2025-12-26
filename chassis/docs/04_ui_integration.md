@@ -54,22 +54,22 @@ class UserProfileViewModel extends ViewModel<UserProfileState, UserProfileEvent>
       : super(mediator, initial: UserProfileState.initial());
 
   void loadUser(String userId) {
-    watch(WatchUserQuery(userId: userId), (asyncUser) {
-      setState(state.copyWith(user: asyncUser));
-    });
+    // Using onState for full lifecycle control
+    watch(
+      mediator.watchUser(userId: userId),
+      onState: (asyncUser) {
+        setState(state.copyWith(user: asyncUser));
+      },
+    );
   }
 
   void updateEmail(String userId, String newEmail) {
-    run(UpdateUserEmailCommand(userId: userId, newEmail: newEmail), (result) {
-      switch (result) {
-        case AsyncData():
-          sendEvent(UserUpdatedEvent());
-        case AsyncError(:final error):
-          sendEvent(UserUpdateFailedEvent(error.toString()));
-        default:
-          break;
-      }
-    });
+    // Using onData/onError for cleaner event handling
+    run(
+      mediator.updateUserEmail(userId: userId, newEmail: newEmail),
+      onData: (_) => sendEvent(UserUpdatedEvent()),
+      onError: (error) => sendEvent(UserUpdateFailedEvent(error.toString())),
+    );
   }
 
   void toggleEditMode() {
@@ -120,40 +120,107 @@ Unlike traditional controllers that might manipulate widgets directly, a Chassis
 
 ### Lifecycle Methods
 
-ViewModels provide three methods for interacting with the Mediator, each serving distinct use cases. The `watch()` method subscribes to WatchQuery streams, establishing an ongoing connection that pushes updates as data changes. The `read()` method executes ReadQuery operations once, fetching current state without ongoing subscriptions. The `run()` method dispatches Commands, handling both the execution and the result.
+ViewModels provide two methods for handling asynchronous operations: `run()` for futures and `watch()` for streams. Both methods accept raw `Future<T>` or `Stream<T>` values (typically from mediator extension methods) and provide callbacks to handle state updates.
+
+#### The watch() Method
+
+The `watch()` method subscribes to a stream, calling the provided callback whenever the stream emits a new value. Subscription management happens automatically—the ViewModel disposes subscriptions when it disposes, preventing memory leaks. Use watch for data that changes over time, like todo lists, presence indicators, or collaborative document state.
 
 ```dart
 class ExampleViewModel extends ViewModel<ExampleState, ExampleEvent> {
-  // watch() - Reactive streams
+  // Using onState for full lifecycle control
   void watchUser(String userId) {
-    watch(WatchUserQuery(userId: userId), (asyncUser) {
-      setState(state.copyWith(user: asyncUser));
-    });
-  }
-
-  // read() - One-time fetch
-  void loadInitialData(String userId) {
-    read(GetUserQuery(userId: userId), (asyncUser) {
-      setState(state.copyWith(user: asyncUser));
-    });
-  }
-
-  // run() - Command execution
-  void deleteUser(String userId) {
-    run(DeleteUserCommand(userId: userId), (result) {
-      if (result case AsyncData()) {
-        sendEvent(UserDeletedEvent());
-      }
-    });
+    watch(
+      mediator.watchUser(userId: userId),
+      onState: (asyncUser) {
+        setState(state.copyWith(user: asyncUser));
+      },
+    );
   }
 }
 ```
 
-The `watch()` method subscribes to a WatchQuery stream, calling the provided callback whenever the stream emits a new value. Subscription management happens automatically—the ViewModel disposes subscriptions when it disposes, preventing memory leaks. Use watch for data that changes over time, like todo lists, presence indicators, or collaborative document state.
+#### The run() Method
 
-The `read()` method executes a ReadQuery once and calls the callback with the result wrapped in Async<T>. Use this for initial data loads or one-off fetches where you don't need ongoing updates. The callback receives the result whether it succeeds or fails, allowing you to update state appropriately in both cases.
+The `run()` method executes a future and handles the result, commonly used for one-time operations like data fetches or commands. Use this for initial data loads, mutations, or any operation that completes once rather than streaming updates.
 
-The `run()` method dispatches a Command and handles the result, commonly used to trigger state mutations and emit events based on success or failure. The callback receives an Async<T> result, enabling pattern matching to handle different outcomes distinctly.
+```dart
+class ExampleViewModel extends ViewModel<ExampleState, ExampleEvent> {
+  // Using onState for one-time fetch
+  void loadUser(String userId) {
+    run(
+      mediator.getUser(userId: userId),
+      onState: (asyncUser) {
+        setState(state.copyWith(user: asyncUser));
+      },
+    );
+  }
+
+  // Using onData/onError for command execution
+  void deleteUser(String userId) {
+    run(
+      mediator.deleteUser(userId: userId),
+      onData: (_) => sendEvent(UserDeletedEvent()),
+      onError: (error) => sendEvent(UserDeleteFailedEvent(error.toString())),
+    );
+  }
+}
+```
+
+#### Callback Patterns
+
+Both `run()` and `watch()` support three callback patterns, allowing you to choose the right level of control:
+
+**onState** - Full lifecycle control with `Async<T>`:
+```dart
+run(
+  mediator.getUser(userId),
+  onState: (asyncUser) {
+    // Receives Async<User> for all states (loading, data, error)
+    setState(state.copyWith(user: asyncUser));
+  },
+);
+```
+
+Use `onState` when you need to handle the complete async lifecycle in your state, such as showing loading indicators or maintaining previous data during refetches.
+
+**onData** - Success-only callback:
+```dart
+run(
+  mediator.createUser(name: name, email: email),
+  onData: (user) {
+    // Only called on success with unwrapped User
+    setState(state.copyWith(user: Async.data(user)));
+    sendEvent(UserCreatedEvent(user));
+  },
+);
+```
+
+Use `onData` when you only care about successful results and want to work with the unwrapped value directly.
+
+**onError** - Error-only callback:
+```dart
+run(
+  mediator.updateUser(userId, data),
+  onError: (error) {
+    // Only called on error
+    sendEvent(UpdateFailedEvent(error.toString()));
+  },
+);
+```
+
+Use `onError` for error handling, often combined with `onData` for clean separation of success and failure cases.
+
+**Combined callbacks**:
+```dart
+run(
+  mediator.deleteUser(userId),
+  onData: (_) => sendEvent(UserDeletedEvent()),
+  onError: (error) => sendEvent(UserDeleteFailedEvent(error.toString())),
+);
+```
+
+Combine `onData` and `onError` when you need different behavior for success and failure but don't need to handle the loading state explicitly.
 
 ## Modeling State with Async<T>
 
@@ -202,20 +269,33 @@ AsyncLoading and AsyncError can optionally retain previous data, enabling the UI
 Dart 3's pattern matching makes working with Async<T> concise and type-safe. The sealed class ensures exhaustive checking—the compiler requires handling all three cases when switching on Async<T> values.
 
 ```dart
-// In ViewModel
+// In ViewModel - Using onState with pattern matching
 void loadUser(String userId) {
-  read(GetUserQuery(userId: userId), (asyncUser) {
-    switch (asyncUser) {
-      case AsyncLoading():
-        setState(state.copyWith(user: asyncUser));
-      case AsyncData(:final value):
-        setState(state.copyWith(user: asyncUser));
-        sendEvent(UserLoadedEvent(value));
-      case AsyncError(:final error):
-        setState(state.copyWith(user: asyncUser));
-        sendEvent(UserLoadFailedEvent(error.toString()));
-    }
-  });
+  run(
+    mediator.getUser(userId: userId),
+    onState: (asyncUser) {
+      switch (asyncUser) {
+        case AsyncLoading():
+          setState(state.copyWith(user: asyncUser));
+        case AsyncData(:final value):
+          setState(state.copyWith(user: asyncUser));
+          sendEvent(UserLoadedEvent(value));
+        case AsyncError(:final error):
+          setState(state.copyWith(user: asyncUser));
+          sendEvent(UserLoadFailedEvent(error.toString()));
+      }
+    },
+  );
+}
+
+// Or using onData/onError for cleaner code
+void loadUser(String userId) {
+  run(
+    mediator.getUser(userId: userId),
+    onState: (asyncUser) => setState(state.copyWith(user: asyncUser)),
+    onData: (user) => sendEvent(UserLoadedEvent(user)),
+    onError: (error) => sendEvent(UserLoadFailedEvent(error.toString())),
+  );
 }
 
 // Or using if-case for specific scenarios

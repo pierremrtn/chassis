@@ -283,26 +283,26 @@ class TodoViewModel extends ViewModel<TodoState, TodoEvent> {
   TodoViewModel(Mediator mediator)
       : super(mediator, initial: TodoState.initial()) {
     // Start watching the todo list immediately
-    watchStream(
+    watch(
       mediator.watchTodos(),
-      (asyncTodos) => setState(state.copyWith(todos: asyncTodos)),
+      onState: (asyncTodos) => setState(state.copyWith(todos: asyncTodos)),
     );
   }
 
   void addTodo(String title) {
-    runCommand(
+    run(
       mediator.addTodo(title),
-      onSuccess: (_) => sendEvent(TodoAddedEvent()),
+      onData: (_) => sendEvent(TodoAddedEvent()),
     );
   }
 
   void toggleTodo(String id) {
-    runCommand(mediator.toggleTodo(id));
+    run(mediator.toggleTodo(id));
   }
 }
 ```
 
-The ViewModel demonstrates Chassis's complete data flow cycle. The `watchStream()` call establishes a subscription to the repository's todo stream through the Mediator. When the repository emits a new list, the ViewModel receives it and wraps it in `Async<T>`, then updates its state. The UI automatically rebuilds to reflect the new todo list.
+The ViewModel demonstrates Chassis's complete data flow cycle. The `watch()` call establishes a subscription to the repository's todo stream through the Mediator. When the repository emits a new list, the ViewModel receives it and wraps it in `Async<T>`, then updates its state. The UI automatically rebuilds to reflect the new todo list.
 
 When a user adds a todo, the flow is:
 1. UI calls `viewModel.addTodo(title)`
@@ -310,7 +310,7 @@ When a user adds a todo, the flow is:
 3. Mediator routes to `AddTodoCommandHandler`
 4. Handler calls `repository.addTodo(title)`
 5. Repository emits new todo list through its stream
-6. ViewModel's `watchStream` callback receives the update
+6. ViewModel's `watch` callback receives the update
 7. UI rebuilds with new todo list
 
 State immutability ensures predictable behavior — the `copyWith` pattern creates new state objects rather than mutating existing ones. The `Async<List<Todo>>` wrapper handles loading, data, and error states automatically, eliminating manual state checking in the UI. Events provide a channel for one-time occurrences like clearing the input field or showing a snackbar, separate from persistent state.
