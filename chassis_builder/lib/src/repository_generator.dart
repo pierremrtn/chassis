@@ -190,11 +190,7 @@ class RepositoryGenerator implements Generator {
 
   Reference _referType(DartType type) {
     final name = type.getDisplayString(withNullability: true);
-    final uri = type.element?.source?.uri.toString();
-    if (uri != null &&
-        (uri.startsWith('dart:core') || uri.startsWith('dart:async'))) {
-      return refer(name);
-    }
+    var uri = type.element?.librarySource?.uri.toString();
     return refer(name, uri);
   }
 }

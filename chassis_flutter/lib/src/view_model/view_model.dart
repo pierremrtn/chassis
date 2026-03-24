@@ -23,31 +23,34 @@ import 'package:rxdart/streams.dart';
 /// Example usage:
 /// ```dart
 /// class UserViewModel extends ViewModel<UserState, UserEvent> {
-///   UserViewModel(Mediator mediator) : super(mediator, UserState.initial());
+///   UserViewModel(Mediator mediator) : super(mediator, initial: UserState.initial());
 ///
 ///   void loadUser(String userId) {
-///     read(GetUserQuery(userId: userId), (state) {
-///       switch (state) {
-///         case FutureLoading():
-///           setState(UserState.loading());
-///         case FutureSuccess(:final data):
-///           setState(UserState.loaded(data));
-///         case FutureError(:final error):
-///           setState(UserState.error(error.toString()));
-///       }
-///     });
+///     // Using onState for full lifecycle control
+///     run(
+///       mediator.getUser(userId),
+///       onState: (asyncUser) => setState(state.copyWith(user: asyncUser)),
+///     );
+///   }
+///
+///   void watchUser(String userId) {
+///     // Using onState to update reactive state
+///     watch(
+///       mediator.watchUser(userId),
+///       onState: (asyncUser) => setState(state.copyWith(user: asyncUser)),
+///     );
 ///   }
 ///
 ///   void createUser(String name, String email) {
-///     run(CreateUserCommand(name: name, email: email), (state) {
-///       switch (state) {
-///         case FutureSuccess(:final user):
-///           setState(UserState.loaded(user));
-///           sendEvent(UserCreatedEvent(user));
-///         case FutureError(:final error):
-///           sendEvent(UserCreationFailedEvent(error.toString()));
-///       }
-///     });
+///     // Using onData/onError for simpler handling
+///     run(
+///       mediator.createUser(name: name, email: email),
+///       onData: (user) {
+///         setState(state.copyWith(user: Async.data(user)));
+///         sendEvent(UserCreatedEvent(user));
+///       },
+///       onError: (error) => sendEvent(UserCreationFailedEvent(error.toString())),
+///     );
 ///   }
 /// }
 /// ```
@@ -110,75 +113,100 @@ class ViewModel<T, E> extends SafeChangeNotifier {
     super.dispose();
   }
 
-  /// Watches a streaming query and calls [onState] with state updates.
+  /// Subscribes to a [Stream] and manages its lifecycle with [Async] state updates.
   ///
-  /// This method subscribes to a [WatchQuery] query and automatically manages the
-  /// subscription lifecycle. It will call [onState] with:
-  /// - [StreamStateInitial] initially
-  /// - [StreamStateData] when data is received
-  /// - [StreamStateError] when an error occurs
+  /// This method automatically handles the stream subscription and disposal (when the
+  /// ViewModel is disposed). It emits states in the following order:
+  /// - [AsyncLoading] immediately (unless [updateLoading] is false)
+  /// - [AsyncData] when the stream emits a value
+  /// - [AsyncError] when the stream emits an error
   ///
-  /// The subscription is automatically disposed when the view model is disposed.
+  /// You can handle updates via the generic [onState] callback or use specific
+  /// helpers [onData] and [onError] for convenience.
+  ///
+  /// Example:
+  /// ```dart
+  /// // Simple usage with onData helper
+  /// watch(
+  ///   mediator.watchUser('123'),
+  ///   onData: (user) => setState(state.copyWith(user: user)),
+  /// );
+  ///
+  /// // Full control with onState
+  /// watch(
+  ///   mediator.watchUser('123'),
+  ///   onState: (asyncState) => setState(state.copyWith(user: asyncState)),
+  /// );
+  /// ```
   @protected
-
-  /// Watches a streaming query and calls [onState] with state updates.
-  @protected
-  void watch<Q extends WatchQuery<R>, R>(
-    Q query,
-    void Function(Async<R>) onState,
-  ) {
-    onState(const Async.loading());
-    autoDisposeStreamSubscription(
-      mediator.watch(query).listen(
-            (data) => onState(Async.data(data)),
-            onError: (e, s) => onState(Async.error(e, stackTrace: s)),
-          ),
-    );
-  }
-
-  /// Runs an async operation and manages its state.
-  Future<Async<R>> _runAsyncOperation<P, R>(
-    P param,
-    Future<R> Function(P params) executor, {
+  void watch<R>(
+    Stream<R> stream, {
     void Function(Async<R>)? onState,
-  }) async {
+    void Function(R data)? onData,
+    void Function(Object error)? onError,
+  }) {
     onState?.call(const Async.loading());
+
+    // 2. Subscribe to the stream
+    final subscription = stream.listen(
+      (data) {
+        final dataState = Async.data(data);
+        // Priority to specific helper, fallback to generic state listener
+        if (onData != null) {
+          onData(data);
+        } else {
+          onState?.call(dataState);
+        }
+      },
+      onError: (e, s) {
+        final errorState = Async<R>.error(e, stackTrace: s);
+        // Priority to specific helper, fallback to generic state listener
+        if (onError != null) {
+          onError(e);
+        } else {
+          onState?.call(errorState);
+        }
+      },
+    );
+
+    // 3. Ensure subscription is cancelled when ViewModel is disposed
+    autoDisposeStreamSubscription(subscription);
+  }
+
+  /// Await a Future and wrap it in an Async<T>
+  @protected
+  Future<Async<R>> run<R>(
+    Future<R> future, {
+    void Function(Async<R>)? onState,
+    void Function(R data)? onData,
+    void Function(Object error)? onError,
+  }) async {
+    final loadState = Async<R>.loading();
+    onState?.call(loadState);
+
     try {
-      final res = await executor(param);
-      final state = Async.data(res);
-      onState?.call(state);
-      return state;
+      final res = await future;
+      final dataState = Async.data(res);
+
+      // Priorité aux callbacks spécifiques, puis au générique
+      if (onData != null) {
+        onData(res);
+      } else {
+        onState?.call(dataState);
+      }
+
+      return dataState;
     } catch (e, s) {
-      final res = Async<R>.error(e, stackTrace: s);
-      onState?.call(res);
-      return res;
+      final errorState = Async<R>.error(e, stackTrace: s);
+
+      if (onError != null) {
+        onError(e);
+      } else {
+        onState?.call(errorState);
+      }
+
+      return errorState;
     }
-  }
-
-  /// Executes a read query and optionally calls [onState] with state updates.
-  @protected
-  Future<Async<R>> read<Q extends ReadQuery<R>, R>(
-    Q query, [
-    void Function(Async<R>)? onState,
-  ]) async {
-    return await _runAsyncOperation(
-      query,
-      mediator.read<R>,
-      onState: onState,
-    );
-  }
-
-  /// Executes a command and optionally calls [onState] with state updates.
-  @protected
-  Future<Async<R>> run<C extends Command<R>, R>(
-    C command, [
-    void Function(Async<R>)? onState,
-  ]) async {
-    return await _runAsyncOperation(
-      command,
-      mediator.run<R>,
-      onState: onState,
-    );
   }
 }
 

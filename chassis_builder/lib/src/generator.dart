@@ -63,7 +63,7 @@ class ChassisBuilder implements Builder {
     };
     final dependencyMap = <String, Reference>{};
 
-    // Analyze dependencies
+    // Analyze handler constructor dependencies (for Mediator constructor)
     for (final handler in handlers) {
       final constructor = handler.unnamedConstructor;
       if (constructor == null) continue;
@@ -161,78 +161,102 @@ class ChassisBuilder implements Builder {
   }
 
   Method? _generateExtensionMethod(ClassElement handler) {
-    InterfaceType? interfaceType;
-    for (final supertype in handler.allSupertypes) {
-      if ((supertype.element.name == 'CommandHandler' ||
-          supertype.element.name == 'ReadHandler' ||
-          supertype.element.name == 'WatchHandler')) {
-        interfaceType = supertype;
-        break;
-      }
-    }
-    if (interfaceType == null)
-      return null; // Should verify it is an InterfaceType
+    // Get handler interface type
+    final interfaceType = _getHandlerInterface(handler);
+    if (interfaceType == null) return null;
 
     final typeArgs = interfaceType.typeArguments;
     if (typeArgs.length < 2) return null;
 
     final inputType = typeArgs[0];
     final outputType = typeArgs[1];
+    final methodName = _generateMethodName(handler.name);
 
-    final methodName = _decapitalize(handler.name.replaceAll('Handler', ''));
+    // Extract constructor parameters
+    final constructorParams = _extractConstructorParameters(inputType);
 
-    if (interfaceType.element.name == 'CommandHandler') {
-      return Method(
-        (m) => m
-          ..name = methodName
-          ..returns = TypeReference(
-            (t) => t
-              ..symbol = 'Future'
-              ..types.add(_referType(outputType)),
-          )
-          ..requiredParameters.add(
-            Parameter(
-              (p) => p
-                ..name = 'command'
-                ..type = _referType(inputType),
-            ),
-          )
-          ..body = refer('run').call([refer('command')]).code,
-      );
-    } else if (interfaceType.element.name == 'ReadHandler' ||
-        interfaceType.element.name == 'WatchHandler') {
-      bool isWatch = interfaceType.element.name == 'WatchHandler';
-      final verb = isWatch ? 'watch' : 'read';
-      final returnType = isWatch ? 'Stream' : 'Future';
+    // Determine handler type and verb
+    final handlerTypeName = interfaceType.element.name;
+    final isCommand = handlerTypeName == 'CommandHandler';
+    final isWatch = handlerTypeName == 'WatchHandler';
+    final verb = isCommand ? 'run' : (isWatch ? 'watch' : 'read');
+    final returnTypeWrapper = isCommand || !isWatch ? 'Future' : 'Stream';
 
-      return Method(
-        (m) => m
-          ..name = methodName
-          ..returns = TypeReference(
-            (t) => t
-              ..symbol = returnType
-              ..types.add(_referType(outputType)),
-          )
-          ..requiredParameters.add(
-            Parameter(
-              (p) => p
-                ..name = 'query'
-                ..type = _referType(inputType),
-            ),
-          )
-          ..body = refer(verb).call([refer('query')]).code,
-      );
+    // Build method parameters from constructor parameters
+    final positionalParams = <Parameter>[];
+    final namedParams = <Parameter>[];
+
+    for (final param in constructorParams) {
+      final methodParam = Parameter((p) => p
+        ..name = param.name
+        ..type = _referType(param.type)
+        ..named = param.isNamed
+        ..required = param.isNamed && param.isRequired
+        ..defaultTo = param.defaultValueCode != null
+            ? _buildDefaultValueExpression(param)
+            : null);
+
+      if (param.isNamed) {
+        namedParams.add(methodParam);
+      } else {
+        positionalParams.add(methodParam);
+      }
     }
-    return null;
+
+    // Build method body: construct command/query, then pass to mediator
+    Code buildBody() {
+      if (constructorParams.isEmpty) {
+        // Empty constructor: mediator.method() => run/read/watch(InputType())
+        final construction = _referType(inputType).newInstance([]);
+        return refer(verb).call([construction]).code;
+      }
+
+      // Build positional arguments
+      final positionalArgs =
+          constructorParams.where((p) => !p.isNamed).map((p) => refer(p.name));
+
+      // Build named arguments
+      final namedArgs = Map.fromEntries(constructorParams
+          .where((p) => p.isNamed)
+          .map((p) => MapEntry(p.name, refer(p.name))));
+
+      // Construct: InputType(args...)
+      final construction =
+          _referType(inputType).newInstance(positionalArgs, namedArgs);
+
+      // Call mediator method: run/read/watch(construction)
+      return refer(verb).call([construction]).code;
+    }
+
+    return Method((m) => m
+      ..name = methodName
+      ..returns = TypeReference((t) => t
+        ..symbol = returnTypeWrapper
+        ..types.add(_referType(outputType)))
+      ..requiredParameters.addAll(positionalParams)
+      ..optionalParameters.addAll(namedParams)
+      ..body = buildBody());
   }
 
   Reference _referType(DartType type) {
     final name = type.getDisplayString(withNullability: true);
-    final uri = type.element?.source?.uri.toString();
+    var uri = type.element?.source?.uri.toString();
+
+    // Don't include URI for dart:core and dart:async (they're imported by default)
     if (uri != null &&
         (uri.startsWith('dart:core') || uri.startsWith('dart:async'))) {
       return refer(name);
     }
+
+    // Normalize dart: URIs to remove part file paths
+    // e.g., 'dart:ui/painting.dart' -> 'dart:ui'
+    if (uri != null && uri.startsWith('dart:')) {
+      final slashIndex = uri.indexOf('/');
+      if (slashIndex != -1) {
+        uri = uri.substring(0, slashIndex);
+      }
+    }
+
     return refer(name, uri);
   }
 
@@ -240,8 +264,77 @@ class ChassisBuilder implements Builder {
     return typeName.substring(0, 1).toLowerCase() + typeName.substring(1);
   }
 
-  String _decapitalize(String s) {
-    if (s.isEmpty) return s;
-    return s[0].toLowerCase() + s.substring(1);
+  String _generateMethodName(String handlerName) {
+    // Remove "Handler" suffix first
+    var name = handlerName.replaceAll('Handler', '');
+
+    // Remove redundant "Query" or "Command" suffixes
+    if (name.endsWith('Query')) {
+      name = name.substring(0, name.length - 'Query'.length);
+    } else if (name.endsWith('Command')) {
+      name = name.substring(0, name.length - 'Command'.length);
+    }
+
+    // Decapitalize first letter
+    if (name.isEmpty) return name;
+    return name[0].toLowerCase() + name.substring(1);
+  }
+
+  List<ParameterElement> _extractConstructorParameters(DartType inputType) {
+    final element = inputType.element;
+    if (element is! ClassElement) return [];
+
+    final constructor = element.unnamedConstructor;
+    if (constructor == null) return [];
+
+    // Skip factory constructors
+    if (constructor.isFactory) return [];
+
+    return constructor.parameters;
+  }
+
+  InterfaceType? _getHandlerInterface(ClassElement handler) {
+    for (final supertype in handler.allSupertypes) {
+      if (supertype.element.name == 'CommandHandler' ||
+          supertype.element.name == 'ReadHandler' ||
+          supertype.element.name == 'WatchHandler') {
+        return supertype;
+      }
+    }
+    return null;
+  }
+
+  Code? _buildDefaultValueExpression(ParameterElement param) {
+    final defaultValueCode = param.defaultValueCode;
+    if (defaultValueCode == null) return null;
+
+    // Get the constant value to access type information
+    final constantValue = param.computeConstantValue();
+    if (constantValue == null) {
+      // Fallback to raw code if we can't analyze it
+      return Code(defaultValueCode);
+    }
+
+    // For const constructor calls like "const Color(0x000000)"
+    // We need to extract the type and rebuild the expression with proper reference
+    final type = constantValue.type;
+    if (type != null && type.element != null) {
+      // Check if this is a constructor invocation
+      // Pattern: const TypeName(...) or TypeName(...)
+      final constructorPattern = RegExp(r'^(?:const\s+)?(\w+)\((.*)\)$');
+      final match = constructorPattern.firstMatch(defaultValueCode);
+
+      if (match != null) {
+        final args = match.group(2)!;
+
+        // Build the expression using proper type reference
+        final typeRef = _referType(type);
+        // Build: const _i4.Color(0x000000)
+        return typeRef.constInstance([CodeExpression(Code(args))]).code;
+      }
+    }
+
+    // Fallback to raw code for simple literals and other cases
+    return Code(defaultValueCode);
   }
 }
