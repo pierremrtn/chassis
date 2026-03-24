@@ -316,7 +316,7 @@ class Todo {
 // lib/data/todo_repository.dart
 import 'dart:async';
 import 'package:chassis/chassis.dart';
-import 'todo.dart';
+import '../documentation/todo.dart';
 
 abstract interface class ITodoRepository {
   @generateQueryHandler
@@ -374,8 +374,8 @@ Running `dart run build_runner build` generates:
 ```dart
 // lib/data/todo_repository.handlers.dart (generated)
 import 'package:chassis/chassis.dart';
-import 'todo.dart';
-import 'todo_repository.dart';
+import '../documentation/todo.dart';
+import '../documentation/todo_repository.dart';
 
 class WatchTodosQuery implements WatchQuery<List<Todo>> {
   const WatchTodosQuery();

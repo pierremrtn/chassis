@@ -63,7 +63,7 @@ Then create `lib/data/todo_repository.dart`:
 
 ```dart
 import 'dart:async';
-import 'todo.dart';
+import '../documentation/todo.dart';
 
 abstract interface class ITodoRepository {
   Stream<List<Todo>> watchTodos();
@@ -325,7 +325,7 @@ Create `lib/presentation/todo_screen.dart`:
 import 'package:flutter/material.dart';
 import 'package:chassis_flutter/chassis_flutter.dart';
 import '../data/todo.dart';
-import 'todo_view_model.dart';
+import '../documentation/todo_view_model.dart';
 
 // We assume the ViewModel is injected above this widget
 class TodoScreen extends StatefulWidget {
@@ -450,10 +450,10 @@ Create `lib/main.dart`:
 ```dart
 import 'package:flutter/material.dart';
 import 'package:chassis_flutter/chassis_flutter.dart';
-import 'data/todo_repository.dart';
-import 'app/app_mediator.dart';
-import 'presentation/todo_screen.dart';
-import 'presentation/todo_view_model.dart';
+import '../documentation/data/todo_repository.dart';
+import '../documentation/app/app_mediator.dart';
+import '../documentation/presentation/todo_screen.dart';
+import '../documentation/presentation/todo_view_model.dart';
 
 // We declare the mediator globally so all our app can access it
 late final AppMediator mediator;
