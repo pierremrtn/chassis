@@ -1,103 +1,207 @@
----
-icon: circle-info
----
+# Chassis
 
-# About Chassis
-
-> **Rigid in Structure, Flexible in Implementation.**
+An opinionated architectural framework for Flutter that enforces Clean Architecture, CQRS, and the Mediator pattern. Chassis provides structural guardrails that promote testability, maintainability, and discoverability in Flutter applications.
 
 ## Overview
 
-Chassis is an opinionated architectural framework for Flutter that provides a solid foundation for professional, scalable, and maintainable applications. It guides your project's structure by combining the clarity of **MVVM** with a pragmatic, front-end friendly implementation of **CQRS** principles.
+Chassis organizes applications into three distinct layers—UI, Logic, and Data—with strict unidirectional dependency flow. The framework implements Command-Query Separation to make data flow explicit and uses the Mediator pattern to decouple presentation logic from business rules. Code generation automates handler registration and reduces boilerplate for standard CRUD operations.
 
-Think of it like the chassis of a car: it provides a rigid, reliable frame so you can focus on building the features that make your application unique. 🏎️
+## Quick Links
 
-### Quick Navigation
+📖 **[Documentation](documentation/00_quick_start.md)** - Get started in 5 minutes
+📦 **[Pub.dev - chassis](https://pub.dev/packages/chassis)** - Core architectural primitives
+📦 **[Pub.dev - chassis_flutter](https://pub.dev/packages/chassis_flutter)** - Flutter UI integration
+📦 **[Pub.dev - chassis_builder](https://pub.dev/packages/chassis_builder)** - Code generation tools
+🔗 **[API Reference](https://pub.dev/documentation/chassis/latest/)** - Complete API documentation
 
-👉 **[Documentation](https://affordant.gitbook.io/chassis/)** – Official Chassis guide and documentation.
-👉 **[Pub.dev](https://pub.dev/packages/chassis)** – Find the Chassis package on pub.dev.
-👉 **[API Reference](https://pub.dev/documentation/chassis/latest/)** – Detailed documentation for all components.
+## Package Ecosystem
 
-***
+Chassis consists of three packages that work together:
 
-## The Philosophy: Structure by Design
+| Package | Purpose | Dependencies |
+|---------|---------|--------------|
+| **[chassis](chassis/)** | Core architectural primitives (Command, Query, Mediator, Async<T>) | Pure Dart |
+| **[chassis_builder](chassis_builder/)** | Code generation for handlers and mediator wiring | Dev dependency |
+| **[chassis_flutter](chassis_flutter/)** | Flutter UI components (ViewModel, AsyncBuilder) | Flutter + chassis |
 
-Good architecture shouldn't rely on developer discipline alone. Chassis is designed around a few core principles to make best practices the path of least resistance.
+## Architecture
 
-* 🏛️ **Structure by Design:** Chassis enforces a clear separation of concerns through its defined data flow. This makes it intuitive to write clean, organized code that is easy for anyone on the team to navigate.
-* 🧩 **Rigid Structure, Flexible Logic:** The overall flow of data is consistent and predictable. However, your actual business logic within each component remains isolated, flexible, and easy to change.
-* ✅ **Testability First:** Every layer, from ViewModels to business logic Handlers, is decoupled by design, making it simple to mock dependencies and test any part of your application in isolation.
-* 🧑‍💻 **Developer Experience Focused:** We aim for minimal boilerplate and a clean, intuitive API. The goal is to make building on a solid architecture feel productive, not restrictive.
-
-***
-
-## Core Concepts
-
-Chassis is built around the **Command Query Responsibility Segregation (CQRS)** pattern, adjusted for front-end development needs. Fundamentally, this means separating the act of writing data from reading data.
-
-* **Writes (Commands):** Any operation that mutates domain state (as opposed to view state) is a **Command**. Commands are objects representing an intent to change something (e.g., `CreateUserCommand`). They are processed by a single handler containing all the necessary business logic and validation, which ensures data consistency and integrity.
-* **Reads (Queries):** All data retrieval is done through **Queries**. A query asks for information and returns a domain object but is strictly forbidden from changing state.
-
-These messages are routed through a central **Mediator**, which decouples the sender from the handler. This design provides a clear separation of concerns, enhances scalability, and simplifies complex business domains.
-
-#### The Flow of Action (Commands) 🎬
-
-When you need to change the application's state, you send a `Command`.
+Chassis enforces a layered architecture with strict separation of concerns:
 
 ```
-ViewModel ➡️ Command ➡️ Mediator ➡️ Handler ➡️ Data Layer
+┌─────────────────────────────────────────────────┐
+│  UI Layer (Presentation)                        │
+│  • Widgets                                      │
+│  • ViewModels                                   │
+└──────────────────┬──────────────────────────────┘
+                   │ Depends on
+                   ▼
+┌─────────────────────────────────────────────────┐
+│  Logic Layer (Application)                      │
+│  • Commands / Queries (use cases)               │
+│  • Handlers (business logic)                    │
+│  • Mediator (orchestration)                     │
+└──────────────────┬──────────────────────────────┘
+                   │ Depends on
+                   ▼
+┌─────────────────────────────────────────────────┐
+│  Data Layer (Infrastructure)                    │
+│  • Repository interfaces                        │
+│  • Repository implementations                   │
+│  • Data sources (API, Database)                 │
+└─────────────────────────────────────────────────┘
 ```
 
-#### The Flow of Data (Queries) 📊
+### Core Principles
 
-When you need to read or subscribe to data, you send a `Query`.
+**Command-Query Separation (CQS)**
+Operations are separated into Commands (writes that modify state) and Queries (reads that retrieve data). This distinction makes data flow explicit and side effects predictable.
 
+**Mediator Pattern**
+ViewModels dispatch Commands and Queries through the Mediator, which routes them to appropriate Handlers. This decoupling enables testing ViewModels without implementing Repositories.
+
+**Code Generation**
+Standard CRUD operations generate Handlers automatically from repository method annotations. The 90/10 principle applies: 90% of operations are generated, 10% are handwritten for complex logic.
+
+## Key Features
+
+### Testability
+ViewModels depend on the Mediator interface, enabling tests with mocked Mediators instead of full dependency trees. Handlers are pure Dart classes testable without the Flutter framework.
+
+### Discoverability
+Command and Query classes serve as a catalog of application capabilities. Searching for all `Command` classes reveals every write operation the application supports.
+
+### Enforced Architecture
+The framework prevents logic from leaking into widgets. ViewModels cannot directly access Repositories—the only path to data flows through the Mediator.
+
+### Standardization
+Every Chassis application follows identical structure. Developers navigate any Chassis codebase by locating Command, Query, and Handler classes.
+
+## When to Use Chassis
+
+Chassis is designed for scenarios where architectural consistency is a primary requirement:
+
+* Large teams requiring structural standardization
+* Complex applications with strict layer separation
+* Projects where testability is critical
+* Codebases that prioritize maintainability over initial development speed
+
+**Trade-off**: Chassis introduces more upfront structure than unopinionated state management solutions. This structure pays dividends in long-term maintainability but requires adherence to the framework's patterns.
+
+## Quick Example
+
+**1. Define repository with annotations:**
+
+```dart
+class UserRepository {
+  @generateQueryHandler
+  Future<User> getUser(String id) async {
+    return await database.findById(id);
+  }
+
+  @generateCommandHandler
+  Future<void> createUser(String name, String email) async {
+    await database.insert(User(name: name, email: email));
+  }
+}
 ```
-ViewModel ➡️ Query ➡️ Mediator ➡️ Handler ➡️ Data Layer ➡️ Returns Data
+
+**2. Generate handlers:**
+
+```bash
+dart run build_runner build
 ```
 
-***
+**3. Create ViewModel:**
 
-## Core Components
+```dart
+class UserViewModel extends ViewModel<UserState, UserEvent> {
+  void loadUser(String id) {
+    read(GetUserQuery(id: id), (asyncUser) {
+      setState(state.copyWith(user: asyncUser));
+    });
+  }
 
-Chassis is composed of two packages that work together: a core architectural library and a Flutter presentation layer.
+  void createUser(String name, String email) {
+    run(CreateUserCommand(name: name, email: email), (result) {
+      if (result case AsyncData()) {
+        sendEvent(UserCreatedEvent());
+      }
+    });
+  }
+}
+```
 
-### **`chassis`**: The Core Architectural Layer
+**4. Render UI:**
 
-A pure Dart package providing the foundational pieces for your application's business logic, completely independent of the UI.
+```dart
+AsyncBuilder<User>(
+  state: viewModel.state.user,
+  builder: (context, user) => Text(user.name),
+  loadingBuilder: (context) => CircularProgressIndicator(),
+  errorBuilder: (context, error) => Text('Error: $error'),
+)
+```
 
-* **Mediator**: The central router that decouples your UI from your business logic.
-* **Messages**: Immutable classes that represent your use cases (`Command`, `ReadQuery`, `WatchQuery`).
-* **Handlers**: Classes where your business logic lives. Each handler is responsible for a single message.
+## Documentation Structure
 
-### **`chassis_flutter`**: The Presentation Layer
+The documentation is organized progressively:
 
-This package seamlessly connects your core logic to the Flutter widget tree.
+1. **[Quick Start](documentation/00_quick_start.md)** - Build a Counter app in 5 minutes
+2. **[Core Architecture](documentation/01_core_architecture.md)** - Understand Layered Architecture, CQRS, and Mediator patterns
+3. **[Business Logic Layer](documentation/02_business_logic.md)** - Implement Commands, Queries, and Handlers
+4. **[Code Generation](documentation/03_code_generation.md)** - Automate handler creation with annotations
+5. **[UI Integration](documentation/04_ui_integration.md)** - Build reactive UIs with ViewModel and AsyncBuilder
 
-* **ViewModel**: The base class for your presentation logic, holding UI state and dispatching messages.
-* **ViewModelProvider**: A widget that uses `provider` to inject your `ViewModel` into the widget tree.
-* **ConsumerMixin**: A mixin for handling one-time events from the `ViewModel` (like showing a dialog).
+Each section follows the principle-first approach: explain the software engineering concept, show how Chassis implements it, demonstrate usage, and conclude with benefits.
 
-***
+## Package Documentation
 
-## Chassis vs. State Management
+Detailed package-specific documentation:
 
-The Flutter ecosystem has excellent state management libraries like **BLoC** and **Riverpod**. **Chassis is not a replacement for them—it operates at a different level of abstraction.**
+* **[chassis](chassis/README.md)** - Core primitives (Command, Query, Handler, Mediator, Async<T>)
+* **[chassis_builder](chassis_builder/README.md)** - Code generation configuration and usage
+* **[chassis_flutter](chassis_flutter/README.md)** - ViewModel, AsyncBuilder, and presentation layer components
 
-BLoC and Riverpod are primarily **tools for state management**. Chassis is an **opinionated framework for application architecture** that uses those tools as part of its foundation.
+## Installation
 
-| Aspect                  | BLoC / Riverpod                                                              | Chassis                                                                        |
-| ----------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| **Primary Goal**        | Efficiently manage state and rebuild the UI when it changes.                 | Enforce a consistent, scalable, and decoupled application structure.           |
-| **Where Logic Lives**   | **Flexible.** Logic can live in a `Bloc`, service, or repository.            | **Prescriptive.** Business logic **must** live in dedicated `Handler` classes. |
-| **Architectural Style** | **High Freedom.** Provides powerful primitives to design your own structure. | **Low Freedom.** Provides a strict structure in exchange for consistency.      |
+Add dependencies to `pubspec.yaml`:
 
-### When to Choose Chassis
+```yaml
+dependencies:
+  chassis: ^0.0.1
+  chassis_flutter: ^0.0.1
 
-Chassis is designed for scenarios where architectural consistency and scalability are the highest priorities:
+dev_dependencies:
+  build_runner: ^2.4.0
+  chassis_builder: ^0.0.1
+```
 
-* You are building a **large, complex application**.
-* **Consistency across a large team** is critical.
-* A **strict separation of concerns** is a project requirement.
+Create `build.yaml`:
 
-**The Trade-off:** There is more upfront boilerplate for simple features. This "ceremony" is the price for long-term scalability and maintainability.
+```yaml
+targets:
+  $default:
+    builders:
+      chassis_builder|repository_builder:
+        enabled: true
+      chassis_builder|chassis_builder:
+        enabled: true
+        options:
+          mediator_name: AppMediator
+```
+
+Run code generation:
+
+```bash
+dart run build_runner build
+```
+
+## Community & Support
+
+* **Issues**: [GitHub Issues](https://github.com/affordant-consulting/chassis/issues)
+* **Discussions**: [GitHub Discussions](https://github.com/affordant-consulting/chassis/discussions)
+
+## License
+
+Chassis is released under the MIT License. See [LICENSE](LICENSE) for details.

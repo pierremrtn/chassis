@@ -2,6 +2,7 @@
 import 'package:example/main.dart' as _i1;
 import 'package:example/user_repository.dart' as _i2;
 import 'package:example/user_repository.handlers.dart' as _i3;
+import 'dart:ui' as _i4;
 import 'package:chassis/chassis.dart';
 
 class MyMediator extends Mediator {
@@ -12,6 +13,7 @@ class MyMediator extends Mediator {
   }) {
     registerCommandHandler(_i1.LoginHandler(authRepo, logger));
     registerQueryHandler(_i1.GetProfileHandler(authRepo));
+    registerQueryHandler(_i1.GetAppConfigHandler(authRepo));
     registerQueryHandler(_i3.GetUserQueryHandler(userRepository));
     registerQueryHandler(_i3.WatchUserQueryHandler(userRepository));
     registerCommandHandler(_i3.CreateUserCommandHandler(userRepository));
@@ -19,13 +21,31 @@ class MyMediator extends Mediator {
 }
 
 extension MyMediatorExtensions on Mediator {
-  Future<void> login(_i1.LoginCommand command) => run(command);
+  Future<void> login(
+    String username, {
+    _i4.Color test = const _i4.Color(0x000000),
+  }) =>
+      run(_i1.LoginCommand(
+        username,
+        test: test,
+      ));
 
-  Future<String> getProfile(_i1.GetProfileQuery query) => read(query);
+  Future<String> getProfile(String userId) => read(_i1.GetProfileQuery(userId));
 
-  Future<String> getUserQuery(_i3.GetUserQuery query) => read(query);
+  Future<String> getAppConfig() => read(_i1.GetAppConfigQuery());
 
-  Stream<String> watchUserQuery(_i3.WatchUserQuery query) => watch(query);
+  Future<String> getUser({required String id}) =>
+      read(_i3.GetUserQuery(id: id));
 
-  Future<void> createUserCommand(_i3.CreateUserCommand command) => run(command);
+  Stream<String> watchUser({required String id}) =>
+      watch(_i3.WatchUserQuery(id: id));
+
+  Future<void> createUser({
+    required String name,
+    required String email,
+  }) =>
+      run(_i3.CreateUserCommand(
+        name: name,
+        email: email,
+      ));
 }

@@ -1,110 +1,326 @@
-# Chassis Builder
+# chassis_builder
 
-A code generator for the [Chassis](https://pub.dev/packages/chassis) framework.
+Code generation tools for the [Chassis](https://pub.dev/packages/chassis) framework. This package automates handler creation from repository methods and generates a Mediator class with dependency injection.
 
-`chassis_builder` scans your code for `@chassisHandler` annotations and automatically generates a concrete `Mediator` class that wires up all your dependencies and handlers.
+## Overview
+
+The `chassis_builder` package provides two builders:
+
+1. **Repository Builder** - Generates Commands, Queries, and Handlers from annotated repository methods
+2. **Chassis Builder** - Generates a Mediator class that registers all handlers with dependency injection
+
+Code generation eliminates manual handler wiring and ensures type-safe registration.
 
 ## Installation
 
-Add `chassis` and `chassis_builder` to your `pubspec.yaml`:
+Add to `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  chassis: ^1.0.0
+  chassis: ^0.0.1
 
 dev_dependencies:
-  chassis_builder: ^1.0.0
+  chassis_builder: ^0.0.1
   build_runner: ^2.4.0
 ```
 
 ## Configuration
 
-Configure the builder in your `build.yaml` file to define the name and location of the generated mediator.
+Create `build.yaml` in the project root:
 
 ```yaml
 targets:
   $default:
     builders:
-      chassis_builder:
+      chassis_builder|repository_builder:
+        enabled: true
+        generate_for:
+          - lib/**_repository.dart
+      chassis_builder|chassis_builder:
+        enabled: true
         options:
-          # The name of the generated Mediator class.
-          # Default: AppMediator
-          mediator_name: MyMediator
-          
-          # The output filename relative to the lib/ folder.
-          # Default: app_mediator.dart
-          output_name: my_app_mediator.dart
+          mediator_name: AppMediator
+          output_name: app_mediator.dart
 ```
 
-By default, the builder generates `lib/app_mediator.dart` containing an `AppMediator` class.
+### Configuration Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `mediator_name` | Name of the generated Mediator class | `AppMediator` |
+| `output_name` | Name of the generated file | `app_mediator.dart` |
+| `generate_for` | File patterns for repository generation | `lib/**_repository.dart` |
 
 ## Usage
 
-### 1. Define Handlers
+### 1. Annotate Repository Methods
 
-Annotate your command and query handlers with `@chassisHandler`.
+Use `@generateQueryHandler` and `@generateCommandHandler` on repository methods:
 
 ```dart
 import 'package:chassis/chassis.dart';
 
-@chassisHandler
-class LoginHandler implements CommandHandler<LoginCommand, void> {
-  final AuthRepo authRepo;
+class UserRepository {
+  // Generates ReadQuery + ReadHandler
+  @generateQueryHandler
+  Future<User> getUser(String id) async {
+    return await database.findById(id);
+  }
 
-  LoginHandler(this.authRepo);
+  // Generates WatchQuery + WatchHandler
+  @generateQueryHandler
+  Stream<List<User>> watchActiveUsers() {
+    return database.watchQuery('SELECT * FROM users WHERE active = 1');
+  }
 
-  @override
-  Future<void> run(LoginCommand command) async {
-    // ... logic
+  // Generates Command + CommandHandler
+  @generateCommandHandler
+  Future<void> createUser(String name, String email) async {
+    await database.insert(User(name: name, email: email));
+  }
+
+  @generateCommandHandler
+  Future<User> updateUserEmail(String userId, String newEmail) async {
+    await database.update('users', {'email': newEmail}, where: 'id = ?', whereArgs: [userId]);
+    return await getUser(userId);
   }
 }
 ```
 
-### 2. Run the Builder
+### 2. Run Code Generation
 
-Run `build_runner` o generate the mediator code.
+Execute build_runner:
 
 ```bash
+# One-time generation
 dart run build_runner build
+
+# Watch mode (regenerates on file changes)
+dart run build_runner watch
+
+# Clean and rebuild
+dart run build_runner build --delete-conflicting-outputs
 ```
 
-### 3. Use the Mediator
+### 3. Generated Output
 
-Instantiate the generated mediator class (e.g. `MyMediator` or `AppMediator`) and use it in your application.
+**Generated File**: `lib/user_repository.handlers.dart`
 
 ```dart
+// GENERATED CODE - DO NOT MODIFY BY HAND
+
 import 'package:chassis/chassis.dart';
-import 'my_app_mediator.dart'; // The generated file
+import 'package:myapp/user_repository.dart';
+
+// Generated Query
+class GetUserQuery implements ReadQuery<User> {
+  const GetUserQuery({required this.id});
+  final String id;
+}
+
+// Generated Handler
+@chassisHandler
+class GetUserQueryHandler implements ReadHandler<GetUserQuery, User> {
+  GetUserQueryHandler(this._repository);
+  final UserRepository _repository;
+
+  @override
+  Future<User> read(GetUserQuery query) async {
+    return await _repository.getUser(query.id);
+  }
+}
+
+// Generated Watch Query
+class WatchActiveUsersQuery implements WatchQuery<List<User>> {
+  const WatchActiveUsersQuery();
+}
+
+// Generated Watch Handler
+@chassisHandler
+class WatchActiveUsersQueryHandler implements WatchHandler<WatchActiveUsersQuery, List<User>> {
+  WatchActiveUsersQueryHandler(this._repository);
+  final UserRepository _repository;
+
+  @override
+  Stream<List<User>> watch(WatchActiveUsersQuery query) {
+    return _repository.watchActiveUsers();
+  }
+}
+
+// Generated Command
+class CreateUserCommand implements Command<void> {
+  const CreateUserCommand({
+    required this.name,
+    required this.email,
+  });
+
+  final String name;
+  final String email;
+}
+
+// Generated Command Handler
+@chassisHandler
+class CreateUserCommandHandler implements CommandHandler<CreateUserCommand, void> {
+  CreateUserCommandHandler(this._repository);
+  final UserRepository _repository;
+
+  @override
+  Future<void> run(CreateUserCommand command) async {
+    await _repository.createUser(command.name, command.email);
+  }
+}
+```
+
+### 4. Generated Mediator
+
+**Generated File**: `lib/app_mediator.dart`
+
+```dart
+// GENERATED CODE - DO NOT MODIFY BY HAND
+
+import 'package:chassis/chassis.dart';
+import 'package:myapp/user_repository.dart';
+import 'package:myapp/user_repository.handlers.dart';
+
+class AppMediator extends Mediator {
+  AppMediator({
+    required UserRepository userRepository,
+  }) {
+    registerQueryHandler<GetUserQuery, User>(
+      GetUserQueryHandler(userRepository),
+    );
+    registerQueryHandler<WatchActiveUsersQuery, List<User>>(
+      WatchActiveUsersQueryHandler(userRepository),
+    );
+    registerCommandHandler<CreateUserCommand, void>(
+      CreateUserCommandHandler(userRepository),
+    );
+    registerCommandHandler<UpdateUserEmailCommand, User>(
+      UpdateUserEmailCommandHandler(userRepository),
+    );
+  }
+}
+```
+
+### 5. Use in Application
+
+Initialize the generated Mediator:
+
+```dart
+import 'package:myapp/app_mediator.dart';
+import 'package:myapp/user_repository.dart';
 
 void main() {
-  final authRepo = AuthRepo();
-  
-  // The generated class constructor automatically requires dependencies 
-  // needed by your handlers.
-  final mediator = MyMediator(
-    authRepo: authRepo,
+  final userRepository = UserRepositoryImpl();
+
+  final mediator = AppMediator(
+    userRepository: userRepository,
   );
 
+  runApp(MyApp(mediator: mediator));
+}
+```
 
-### 4. Repository Method Generation
+## Manual Handler Registration
 
-You can also generate handlers directly from repository methods.
+For handlers with custom logic, use the `@chassisHandler` annotation:
 
-1.  **Annotate Repository Methods**: Use `@generateQueryHandler` or `@generateCommandHandler` on your repository methods.
+```dart
+@chassisHandler
+class ComplexOperationHandler implements CommandHandler<ComplexOperationCommand, Result> {
+  const ComplexOperationHandler({
+    required this.repository,
+    required this.validator,
+    required this.logger,
+  });
 
-    ```dart
-    class UserRepository {
-      @generateQueryHandler
-      Future<User> getUser(String id) async { ... }
-    
-      @generateCommandHandler
-      Future<void> createUser(String name, String email) async { ... }
-      
-      @generateQueryHandler
-      Stream<User> watchUser(String id) async* { ... }
-    }
-    ```
+  final IDataRepository repository;
+  final IValidator validator;
+  final ILogger logger;
 
-2.  **Generate**: Run the builder. This will create a `.handlers.dart` file next to your repository (e.g., `user_repository.handlers.dart`) containing the handler classes and DTOs.
+  @override
+  Future<Result> run(ComplexOperationCommand command) async {
+    // Complex multi-step logic
+    await validator.validate(command);
+    await logger.log('Starting operation');
 
-3.  **Automatic Registration**: The generated handlers are annotated with `@chassisHandler` and will be automatically registered by the mediator generator.
+    final result = await repository.execute(command);
+
+    await logger.log('Operation completed');
+    return result;
+  }
+}
+```
+
+The generated Mediator will include this handler and require its dependencies in the constructor:
+
+```dart
+AppMediator({
+  required UserRepository userRepository,
+  required IDataRepository repository,
+  required IValidator validator,
+  required ILogger logger,
+}) {
+  // Generated handlers
+  registerCommandHandler<CreateUserCommand, void>(
+    CreateUserCommandHandler(userRepository),
+  );
+
+  // Manual handler
+  registerCommandHandler<ComplexOperationCommand, Result>(
+    ComplexOperationHandler(
+      repository: repository,
+      validator: validator,
+      logger: logger,
+    ),
+  );
+}
+```
+
+## Method Signature Rules
+
+For generation to work correctly, repository methods must follow these conventions:
+
+**Return Types:**
+- `Future<T>` for read queries → generates `ReadQuery<T>`
+- `Stream<T>` for watch queries → generates `WatchQuery<T>`
+- `Future<T>` for commands → generates `Command<T>`
+
+**Naming Conventions:**
+- Read queries: `getX`, `fetchX`, `loadX`, `findX`
+- Watch queries: `watchX`, `observeX`, `streamX`
+- Commands: `createX`, `updateX`, `deleteX`, `removeX`, `saveX`
+
+**Parameter Types:**
+- Use Dart primitives (`String`, `int`, `bool`, `double`)
+- Use custom classes (they become DTO fields)
+- Avoid optional parameters
+
+## Troubleshooting
+
+**Issue: Generated files not updating**
+
+Solution:
+
+```bash
+dart run build_runner build --delete-conflicting-outputs
+```
+
+**Issue: Handler not registered in Mediator**
+
+Solution: Ensure the handler has the `@chassisHandler` annotation and is in a file matching the `generate_for` pattern in `build.yaml`.
+
+**Issue: Type mismatch errors**
+
+Solution: Verify that handler generic types match the Query/Command types exactly.
+
+## Next Steps
+
+* **[Quick Start](../documentation/00_quick_start.md)** - See code generation in action
+* **[Code Generation](../documentation/03_code_generation.md)** - Comprehensive guide to annotations
+* **[Business Logic Layer](../documentation/02_business_logic.md)** - Learn when to generate vs write manually
+* **[chassis](../chassis/README.md)** - Core package documentation
+
+## License
+
+MIT License - See [LICENSE](../LICENSE) for details.

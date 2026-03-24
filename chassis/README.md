@@ -1,129 +1,247 @@
-# Chassis 🏎️
+# chassis
 
-An opinionated architectural framework for Flutter that provides a solid foundation for professional, scalable, and maintainable applications.
+Core architectural primitives for building structured Flutter applications. This pure Dart package provides the foundation for the Chassis framework, enabling testable business logic independent of the Flutter UI layer.
 
-**Rigid in Structure, Flexible in Implementation.**
+## Overview
 
-Chassis guides your project's structure by combining the clarity of MVVM with a pragmatic, front-end friendly implementation of CQRS principles. It's designed to make best practices the easiest path forward.
+The `chassis` package implements three foundational patterns:
 
-Learn more from the full [documentation](https://affordant.gitbook.io/chassis/).
+* **Command-Query Separation (CQS)** - Separates write operations (Commands) from read operations (Queries)
+* **Mediator Pattern** - Decouples message senders from handlers
+* **Async State Modeling** - Represents asynchronous operation lifecycle as a sealed union
 
------
+## Core Exports
 
-## Why Use Chassis?
+### Messages
 
-  * 🏛️ **Structure by Design**: Don't rely on developer discipline to maintain a clean codebase. Chassis enforces a clean data flow, making the code intuitive and organized by default.
-  * 🧠 **Explicit Logic**: By separating Commands and Queries, your business logic becomes explicit, discoverable, and easier to reason about.
-  * ✅ **Testability First**: Every layer is decoupled and designed to be easily testable in isolation, from business logic handlers to your data layer.
-  * 🔌 **Observable & Pluggable**: Easily plug-in middleware to observe every Command and Query in your application for logging, analytics, or debugging.
-
------
-
-## The Chassis Ecosystem
-
-Chassis is designed as a modular set of packages to enforce a strong separation between business logic and UI.
-
-  * **`chassis` (this package)**: The core, pure Dart library. It contains the foundational building blocks (`Mediator`, `Command`, `Query`, etc.) and has no dependency on Flutter. This is where all your application's business logic lives.
-  * [**`chassis_flutter`**](https://pub.dev/packages/chassis_flutter): Provides Flutter-specific widgets and helpers to integrate the core `chassis` logic by following the `MVVM` pattern.
-
------
-
-## Core Concepts
-
-Chassis is built around the Command Query Responsibility Segregation (CQRS) pattern, adjusted for front-end development needs. Fundamentally, this means separating the act of writing data from reading data.
-
-* Writes (Commands): Any operation that mutates domain state (as opposite to view state) is a Command. Commands are objects representing an intent to change something (e.g., CreateUserCommand). They are processed by a single handler containing all the necessary business logic and validation, which ensures data consistency and integrity.
-
-* Reads (Queries): All data retrieval is done through Queries. A query asks for information and returns a domain object but is strictly forbidden from changing state.
-
-These messages are routed through a central Mediator, which decouples the sender from the handler. This design provides a clear separation of concerns, enhances scalability, and simplifies complex business domains.
-
-**The Flow of Action (Commands) 🎬**
-
-When you need to change the application's state, you send a `Command`.
-
-```
-ViewModel ➡️ Command ➡️ Mediator ➡️ Handler ➡️ Data Layer
-```
-
-**The Flow of Data (Queries) 📊**
-
-When you need to read or subscribe to data, you send a `Query`.
-
-```
-ViewModel ➡️ Query ➡️ Mediator ➡️ Handler ➡️ Data Layer ➡️ Returns Data
-```
-
------
-
-## Core API in Action
-
-This example demonstrates the fundamental pattern of defining and handling a message. Note that this code is pure Dart and lives in your core logic, completely independent of Flutter.
-
-#### 1\. Define a Query
-
-A Query is an immutable message describing the data you want.
+**Command** - Represents an intent to modify state:
 
 ```dart
-// domain/use_cases/get_greeting_query.dart
-import 'package:chassis/chassis.dart';
+class CreateUserCommand extends Command<User> {
+  const CreateUserCommand({
+    required this.name,
+    required this.email,
+  });
 
-// Implement WatchQuery for reactive data streams that update over time.
-class WatchGreetingsQuery implements WatchQuery<String> {
-  const WatchGreetingsQuery();
+  final String name;
+  final String email;
 }
 ```
 
-#### 2\. Create the Handler
-
-A Handler contains the business logic to process the Query.
+**ReadQuery** - One-time data fetch:
 
 ```dart
-// app/use_cases/get_greeting_query_handler.dart
-import 'package:chassis/chassis.dart';
+class GetUserQuery implements ReadQuery<User> {
+  const GetUserQuery({required this.userId});
+  final String userId;
+}
+```
 
-// Each message type has a corresponding handler:
-// ReadQuery -> ReadHandler
-// WatchQuery -> WatchHandler
-// Command -> CommandHandler
-class WatchGreetingsQueryHandler implements WatchHandler<WatchGreetingsQuery, String> {
-  final IGreetingRepository greetingRepository;
-  
-  WatchGreetingsQueryHandler({
-    required this.greetingRepository,
-  });
+**WatchQuery** - Continuous stream of updates:
+
+```dart
+class WatchUserQuery implements WatchQuery<User> {
+  const WatchUserQuery({required this.userId});
+  final String userId;
+}
+```
+
+### Handlers
+
+**CommandHandler** - Executes business logic for Commands:
+
+```dart
+class CreateUserCommandHandler implements CommandHandler<CreateUserCommand, User> {
+  const CreateUserCommandHandler(this.repository);
+
+  final IUserRepository repository;
 
   @override
-  Stream<String> watch(WatchGreetingsQuery query) {
-    // Your business logic lives here
-    return greetingRepository.getGreetingStream();
+  Future<User> run(CreateUserCommand command) async {
+    // Validation and business logic
+    if (command.email.isEmpty) {
+      throw ValidationException('Email is required');
+    }
+
+    return await repository.create(command.name, command.email);
   }
 }
 ```
 
-#### 3\. Register and Dispatch with the Mediator
-
-At your application's startup, register your handler. Then, from your application logic, dispatch the query to get data.
+**ReadHandler** - Executes one-time queries:
 
 ```dart
-// At application startup
-final mediator = Mediator();
-final greetingRepository = GreetingRepository();
+final handler = ReadHandler<GetUserQuery, User>(
+  (query) async => await repository.findById(query.userId),
+);
+```
 
-mediator.registerQueryHandler(
-  WatchGreetingsQueryHandler(greetingRepository: greetingRepository),
+**WatchHandler** - Executes streaming queries:
+
+```dart
+final handler = WatchHandler<WatchUserQuery, User>(
+  (query) => repository.watchById(query.userId),
+);
+```
+
+### Mediator
+
+The central router that dispatches messages to handlers:
+
+```dart
+final mediator = Mediator();
+
+// Register handlers
+mediator.registerCommandHandler<CreateUserCommand, User>(
+  CreateUserCommandHandler(userRepository),
 );
 
-// From your application layer
-final subscription = mediator.watch(const WatchGreetingsQuery()).listen((greeting) {
-  print(greeting); // Outputs each greeting from your repository stream
+mediator.registerQueryHandler<GetUserQuery, User>(
+  ReadHandler<GetUserQuery, User>(
+    (query) async => await userRepository.findById(query.userId),
+  ),
+);
+
+// Dispatch operations
+final user = await mediator.run(CreateUserCommand(
+  name: 'John Doe',
+  email: 'john@example.com',
+));
+
+final fetchedUser = await mediator.read(GetUserQuery(userId: user.id));
+```
+
+### Async<T> Sealed Union
+
+Models the complete lifecycle of asynchronous operations:
+
+```dart
+sealed class Async<T> {
+  const Async();
+
+  const factory Async.data(T value) = AsyncData<T>;
+  const factory Async.loading([T? previous]) = AsyncLoading<T>;
+  const factory Async.error(Object error, {StackTrace? stackTrace, T? previous}) = AsyncError<T>;
+}
+```
+
+**Usage with pattern matching:**
+
+```dart
+void handleUser(Async<User> asyncUser) {
+  switch (asyncUser) {
+    case AsyncLoading():
+      print('Loading...');
+    case AsyncData(:final value):
+      print('User: ${value.name}');
+    case AsyncError(:final error):
+      print('Error: $error');
+  }
+}
+```
+
+## Middleware
+
+Intercept operations for cross-cutting concerns:
+
+```dart
+class LoggingMiddleware extends MediatorMiddleware {
+  @override
+  Future<R> onRun<C extends Command<R>, R>(C command, NextRun<C, R> next) async {
+    print('Executing command: ${command.runtimeType}');
+    final result = await next(command);
+    print('Command completed');
+    return result;
+  }
+
+  @override
+  Future<R> onRead<Q extends ReadQuery<R>, R>(Q query, NextRead<Q, R> next) async {
+    print('Executing query: ${query.runtimeType}');
+    return await next(query);
+  }
+}
+
+final mediator = Mediator();
+mediator.addMiddleware(LoggingMiddleware());
+```
+
+## Annotations
+
+Mark classes for code generation:
+
+```dart
+// Mark manually written handlers for auto-registration
+@chassisHandler
+class CreateUserCommandHandler implements CommandHandler<CreateUserCommand, User> {
+  // Implementation
+}
+
+// Generate handlers from repository methods
+class UserRepository {
+  @generateQueryHandler
+  Future<User> getUser(String id) async {
+    return await database.findById(id);
+  }
+
+  @generateCommandHandler
+  Future<void> deleteUser(String id) async {
+    await database.delete(id);
+  }
+}
+```
+
+## Testing
+
+Handlers are pure Dart classes testable without Flutter:
+
+```dart
+test('CreateUserCommandHandler validates email', () async {
+  final mockRepository = MockUserRepository();
+  final handler = CreateUserCommandHandler(mockRepository);
+
+  final command = CreateUserCommand(name: 'John', email: '');
+
+  expect(
+    () => handler.run(command),
+    throwsA(isA<ValidationException>()),
+  );
+
+  verifyNever(() => mockRepository.create(any(), any()));
 });
 ```
 
------
+## Installation
+
+Add to `pubspec.yaml`:
+
+```yaml
+dependencies:
+  chassis: ^0.0.1
+```
+
+For Flutter UI integration, also add:
+
+```yaml
+dependencies:
+  chassis_flutter: ^0.0.1
+```
+
+For code generation:
+
+```yaml
+dev_dependencies:
+  chassis_builder: ^0.0.1
+  build_runner: ^2.4.0
+```
 
 ## Next Steps
 
-You've now seen the core pattern of the `chassis` library. To see how to integrate this logic with your Flutter UI, please check out:
-* **The full [documentation](https://affordant.gitbook.io/chassis/)** for advanced concepts, tutorials, and best practices.
-* The **[`chassis_flutter`](https://pub.dev/packages/chassis_flutter)** package to connect your logic to widgets.
+* **[Quick Start](../documentation/00_quick_start.md)** - Build a complete application
+* **[Core Architecture](../documentation/01_core_architecture.md)** - Understand the architectural principles
+* **[Business Logic Layer](../documentation/02_business_logic.md)** - Learn when to use each component
+* **[Code Generation](../documentation/03_code_generation.md)** - Automate handler creation
+* **[chassis_flutter](../chassis_flutter/README.md)** - Integrate with Flutter UI
+
+## License
+
+MIT License - See [LICENSE](../LICENSE) for details.
