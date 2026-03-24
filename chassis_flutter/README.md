@@ -1,164 +1,459 @@
-# chassis_flutter 🏎️
+# chassis_flutter
 
-**Rigid in Structure, Flexible in Implementation.**
+Flutter UI integration for the [Chassis](https://pub.dev/packages/chassis) framework. This package provides ViewModel base classes, reactive widgets, and presentation layer utilities following the MVVM pattern.
 
-This package provides Flutter widgets and helpers to integrate the core [`chassis`](https://pub.dev/packages/chassis) architecture. It connects your business logic to the UI using the `provider` package, giving you the necessary tools to create a clean, reactive, and highly testable presentation layer following the **MVVM** pattern.
+## Overview
 
-Learn more from the full [documentation](https://affordant.gitbook.io/chassis/).
+The `chassis_flutter` package connects business logic from the `chassis` core package to the Flutter widget tree. It provides:
 
------
+* **ViewModel** - State management and command/query dispatch
+* **AsyncBuilder** - Renders `Async<T>` states with anti-flickering
+* **ViewModelProvider** - Dependency injection using `provider`
+* **ConsumerMixin** - One-time event handling with automatic cleanup
 
 ## Core Components
 
-`chassis_flutter` provides a few key components to bridge the gap between your domain logic ([`chassis`](https://pub.dev/packages/chassis)) and your user interface (Flutter).
+### ViewModel
 
-* `ViewModel`: The bridge between your UI and your domain. It holds UI state, processes user input by sending messages to the `Mediator`, and exposes results for the View to display.
-* `ViewModelProvider`: A simple widget, built on top of `provider`, for injecting your `ViewModel` into the widget tree and making it accessible to your screens.
-* `ConsumerMixin`: A mixin for `StatefulWidget`s to easily listen for one-time events (like showing a dialog or navigating) from the `ViewModel` without triggering a rebuild.
-
------
-
-## Getting Started
-
-This guide demonstrates how to build a simple feature that fetches a greeting.
-
-### 1\. Define UI State & Events
-
-First, create immutable classes for your UI's **State** (the data to render) and **Events** (one-time side effects like showing a snackbar).
-
-💡 **Why Events?** Unlike state, events don't represent what the UI *is*, but rather what it *should do*. They are sent from the `ViewModel` to the `View` to trigger actions like navigation or alerts without cluttering the UI state.
+Bridges UI and business logic by holding state and dispatching operations through the Mediator:
 
 ```dart
-// lib/features/greeting/greeting_view_model.dart
-class GreetingState {
-  const GreetingState({
-    this.greeting = const Async.loading(),
-  });
-  
-  final Async<String> greeting;
-  
-  // A copyWith method is recommended for immutability
-  GreetingState copyWith({Async<String>? greeting}) {
-    return GreetingState(
-      greeting: greeting ?? this.greeting,
+class UserProfileState {
+  const UserProfileState({required this.user});
+  final Async<User> user;
+
+  UserProfileState copyWith({Async<User>? user}) {
+    return UserProfileState(user: user ?? this.user);
+  }
+
+  static UserProfileState initial() {
+    return UserProfileState(user: Async.loading());
+  }
+}
+
+sealed class UserProfileEvent {}
+class UserUpdatedEvent implements UserProfileEvent {}
+
+class UserProfileViewModel extends ViewModel<UserProfileState, UserProfileEvent> {
+  UserProfileViewModel(Mediator mediator)
+      : super(mediator, initial: UserProfileState.initial());
+
+  void loadUser(String userId) {
+    watch(
+      mediator.watchUser(userId: userId),
+      onState: (asyncUser) {
+        setState(state.copyWith(user: asyncUser));
+      },
     );
   }
-}
 
-sealed class GreetingEvent {}
-class ShowGreetingSuccess implements GreetingEvent {
-  const ShowGreetingSuccess(this.message);
-  final String message;
-}
-```
-
-### 2\. Create the ViewModel
-
-The `ViewModel` connects to the `Mediator` to watch data streams and manages the `GreetingState`. It automatically subscribes to data updates when initialized.
-
-```dart
-// lib/features/greeting/greeting_view_model.dart
-class GreetingViewModel extends ViewModel<GreetingState, GreetingEvent> {
-  GreetingViewModel(Mediator mediator) : super(mediator, const GreetingState()) {
-    _subscribeToGreetings();
-  }
-
-  void _subscribeToGreetings() {
-    // Watch the greeting stream for real-time updates
-    watch(const WatchGreetingsQuery(), (asyncState) {
-        // AsyncBuilder in the view handles loading/error states for us.
-        // We just need to update our state with the latest async snapshot.
-        setState(state.copyWith(greeting: asyncState));
-        
-        // Use pattern matching for side effects if needed (e.g. success toast)
-        if (asyncState case AsyncData(value: final msg)) {
-           sendEvent(ShowGreetingSuccess(msg));
-        }
-    });
-  }
-}
-```
-
-### 3\. Provide the ViewModel
-
-Use `ViewModelProvider` (usually above your `MaterialApp` or at the screen level) to make the `ViewModel` available to the widget tree.
-
-```dart
-// lib/app.dart
-class MyApp extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    // This makes the GreetingViewModel available to GreetingScreen and its children.
-    return ViewModelProvider(
-      create: (_) => GreetingViewModel(mediator), // Assumes 'mediator' is accessible
-      child: const MaterialApp(home: GreetingScreen()),
+  void updateEmail(String userId, String newEmail) {
+    run(
+      mediator.updateUserEmail(userId: userId, newEmail: newEmail),
+      onData: (_) => sendEvent(UserUpdatedEvent()),
     );
   }
 }
 ```
 
-### 4\. Consume State & Events in the View
+### AsyncBuilder
 
-Finally, connect your UI to the `ViewModel`.
-
-  * Use `context.watch<T>()` in the `build` method to listen for state changes and rebuild the UI.
-  * Use `AsyncBuilder` to handle loading, data, and error states automatically.
-  * Use the `ConsumerMixin` to handle one-time events.
-
-<!-- end list -->
+Renders `Async<T>` states with custom loading, error, and data builders:
 
 ```dart
-// lib/features/greeting/greeting_screen.dart
-class _GreetingScreenState extends State<GreetingScreen> with ConsumerMixin {
+AsyncBuilder<User>(
+  state: viewModel.state.user,
+  builder: (context, user) {
+    return Column(
+      children: [
+        CircleAvatar(backgroundImage: NetworkImage(user.avatarUrl)),
+        Text(user.name),
+        Text(user.email),
+      ],
+    );
+  },
+  loadingBuilder: (context) => CircularProgressIndicator(),
+  errorBuilder: (context, error) => Text('Error: $error'),
+  maintainState: true, // Show previous data during refetch (anti-flickering)
+)
+```
+
+**Parameters:**
+
+| Parameter | Type | Description | Default |
+|-----------|------|-------------|---------|
+| `state` | `Async<T>` | The async state to render | Required |
+| `builder` | `Widget Function(BuildContext, T)` | Renders when data is available | Required |
+| `loadingBuilder` | `WidgetBuilder?` | Renders during loading | `CircularProgressIndicator` |
+| `errorBuilder` | `Widget Function(BuildContext, Object)?` | Renders on error | `SizedBox.shrink()` |
+| `maintainState` | `bool` | Show previous data during refetch | `true` |
+
+### ViewModelProvider
+
+Provides ViewModels to the widget tree using the `provider` package:
+
+```dart
+ViewModelProvider<UserProfileViewModel>(
+  create: (context) => UserProfileViewModel(mediator),
+  child: UserProfileScreen(),
+)
+```
+
+Access ViewModel in widgets:
+
+```dart
+// Rebuild when state changes
+final viewModel = context.watch<UserProfileViewModel>();
+
+// Access without rebuilding
+final viewModel = context.read<UserProfileViewModel>();
+```
+
+### ConsumerMixin
+
+Handles one-time events from ViewModels with automatic subscription cleanup:
+
+```dart
+class _UserProfileScreenState extends State<UserProfileScreen> with ConsumerMixin {
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // Listen for one-off events with ConsumerMixin
-    onEvent<GreetingViewModel, GreetingEvent>((event) {
-      if (event is ShowGreetingSuccess) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(content: Text(event.message)));
+  void initState() {
+    super.initState();
+
+    onEvent<UserProfileViewModel, UserProfileEvent>((event) {
+      switch (event) {
+        case UserUpdatedEvent():
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Profile updated')),
+          );
       }
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    // `watch` gets the ViewModel and rebuilds the widget when the state changes.
-    final viewModel = context.watch<GreetingViewModel>();
-    final state = viewModel.state;
-
-    return Scaffold(
-      appBar: AppBar(title: const Text('Chassis Quickstart')),
-      body: Center(
-        // AsyncBuilder handles loading, error, and data states for you
-        child: AsyncBuilder(
-          state: state.greeting,
-          builder: (context, message) => Text(
-            message, 
-            style: Theme.of(context).textTheme.headlineMedium
-          ),
-          loadingBuilder: (context) => const CircularProgressIndicator(),
-        ),
-      ),
-    );
+    final viewModel = context.watch<UserProfileViewModel>();
+    // Build UI
   }
 }
 ```
 
------
+## Complete Example
 
-## The Full Picture
+```dart
+// Data Model
+class Todo {
+  const Todo({
+    required this.id,
+    required this.title,
+    required this.isCompleted,
+  });
 
-The `chassis` and `chassis_flutter` packages work together to create a clean separation of concerns:
+  final String id;
+  final String title;
+  final bool isCompleted;
 
-1. **ViewModel** automatically subscribes to a `WatchGreetingsQuery` stream when initialized.
-2. **Mediator** finds the corresponding `WatchGreetingsQueryHandler` in your core `chassis` layer.
-3. **Handler** executes the business logic and returns a stream of results.
-4. **ViewModel** receives stream updates, updates its `GreetingState`, and the **View** automatically rebuilds to show new messages.
-5. **View** (`GreetingScreen`) displays the current state and reacts to events like success notifications.
+  Todo copyWith({String? id, String? title, bool? isCompleted}) {
+    return Todo(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      isCompleted: isCompleted ?? this.isCompleted,
+    );
+  }
+}
+
+// State
+class TodoState {
+  const TodoState({required this.todos});
+  final Async<List<Todo>> todos;
+
+  TodoState copyWith({Async<List<Todo>>? todos}) {
+    return TodoState(todos: todos ?? this.todos);
+  }
+
+  static TodoState initial() {
+    return TodoState(todos: Async.loading());
+  }
+}
+
+// Events
+sealed class TodoEvent {}
+class TodoAddedEvent implements TodoEvent {}
+
+// ViewModel
+class TodoViewModel extends ViewModel<TodoState, TodoEvent> {
+  TodoViewModel(Mediator mediator) : super(mediator, initial: TodoState.initial());
+
+  void watchTodos() {
+    watch(
+      mediator.watchTodos(),
+      onState: (asyncTodos) {
+        setState(state.copyWith(todos: asyncTodos));
+      },
+    );
+  }
+
+  void addTodo(String title) {
+    run(
+      mediator.addTodo(title: title),
+      onData: (_) => sendEvent(TodoAddedEvent()),
+    );
+  }
+
+  void toggleTodo(String id) {
+    run(mediator.toggleTodo(id: id));
+  }
+}
+
+// Widget
+class TodoScreen extends StatefulWidget {
+  @override
+  State<TodoScreen> createState() => _TodoScreenState();
+}
+
+class _TodoScreenState extends State<TodoScreen> with ConsumerMixin {
+  final _textController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+
+    context.read<TodoViewModel>().watchTodos();
+
+    onEvent<TodoViewModel, TodoEvent>((event) {
+      if (event is TodoAddedEvent) {
+        _textController.clear();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Todo added')),
+        );
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _textController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final viewModel = context.watch<TodoViewModel>();
+
+    return Scaffold(
+      appBar: AppBar(title: Text('Todo List')),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _textController,
+                    decoration: InputDecoration(
+                      hintText: 'Enter todo title',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed: () {
+                    final title = _textController.text.trim();
+                    if (title.isNotEmpty) {
+                      viewModel.addTodo(title);
+                    }
+                  },
+                  child: Text('Add'),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: AsyncBuilder<List<Todo>>(
+              state: viewModel.state.todos,
+              builder: (context, todos) {
+                if (todos.isEmpty) {
+                  return Center(child: Text('No todos yet. Add one above!'));
+                }
+                return ListView.builder(
+                  itemCount: todos.length,
+                  itemBuilder: (context, index) {
+                    final todo = todos[index];
+                    return ListTile(
+                      leading: Checkbox(
+                        value: todo.isCompleted,
+                        onChanged: (_) => viewModel.toggleTodo(todo.id),
+                      ),
+                      title: Text(
+                        todo.title,
+                        style: TextStyle(
+                          decoration: todo.isCompleted
+                              ? TextDecoration.lineThrough
+                              : null,
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// App
+void main() {
+  final mediator = AppMediator(todoRepository: TodoRepository());
+
+  runApp(MaterialApp(
+    home: ViewModelProvider<TodoViewModel>(
+      create: (_) => TodoViewModel(mediator),
+      child: TodoScreen(),
+    ),
+  ));
+}
+```
+
+## ViewModel Lifecycle Methods
+
+ViewModels provide two methods for handling asynchronous operations:
+
+**watch()** - Subscribe to reactive streams:
+
+```dart
+void watchUser(String userId) {
+  watch(
+    mediator.watchUser(userId: userId),
+    onState: (asyncUser) {
+      setState(state.copyWith(user: asyncUser));
+    },
+  );
+}
+```
+
+**run()** - Execute futures (queries or commands):
+
+```dart
+// One-time data fetch
+void loadUser(String userId) {
+  run(
+    mediator.getUser(userId: userId),
+    onState: (asyncUser) {
+      setState(state.copyWith(user: asyncUser));
+    },
+  );
+}
+
+// Command execution with event handling
+void deleteUser(String userId) {
+  run(
+    mediator.deleteUser(userId: userId),
+    onData: (_) => sendEvent(UserDeletedEvent()),
+    onError: (error) => sendEvent(DeleteFailedEvent(error.toString())),
+  );
+}
+```
+
+**Callback Options:**
+
+Both methods support three callback patterns:
+- `onState: (Async<T>)` - Full lifecycle control for all states
+- `onData: (T)` - Success-only callback with unwrapped value
+- `onError: (Object)` - Error-only callback
+
+All subscriptions are automatically disposed when the ViewModel is disposed.
+
+## State vs Events
+
+**State** - Persistent data that determines UI rendering:
+
+```dart
+class UserListState {
+  const UserListState({required this.users});
+  final Async<List<User>> users;
+}
+```
+
+**Events** - One-time notifications for side effects:
+
+```dart
+sealed class UserListEvent {}
+class UserDeletedEvent implements UserListEvent {}
+class UserDeleteFailedEvent implements UserListEvent {
+  const UserDeleteFailedEvent(this.message);
+  final String message;
+}
+```
+
+Events handle navigation, dialogs, snackbars—actions that happen once and should not persist in state.
+
+## Testing
+
+### ViewModel Testing
+
+```dart
+class MockMediator extends Mock implements Mediator {}
+
+test('loadUser dispatches WatchUserQuery', () {
+  final mockMediator = MockMediator();
+  final viewModel = UserViewModel(mockMediator);
+
+  when(() => mockMediator.watch(any<WatchUserQuery>()))
+      .thenAnswer((_) => Stream.value(User(id: '1', name: 'John')));
+
+  viewModel.loadUser('1');
+
+  verify(() => mockMediator.watch(any<WatchUserQuery>())).called(1);
+});
+```
+
+### Widget Testing
+
+```dart
+class MockUserViewModel extends Mock implements UserViewModel {}
+
+testWidgets('UserScreen displays user from ViewModel', (tester) async {
+  final mockViewModel = MockUserViewModel();
+
+  when(() => mockViewModel.state).thenReturn(
+    UserState(user: Async.data(User(id: '1', name: 'Alice'))),
+  );
+
+  await tester.pumpWidget(
+    MaterialApp(
+      home: Provider<UserViewModel>.value(
+        value: mockViewModel,
+        child: UserScreen(),
+      ),
+    ),
+  );
+
+  expect(find.text('Alice'), findsOneWidget);
+});
+```
+
+## Installation
+
+Add to `pubspec.yaml`:
+
+```yaml
+dependencies:
+  chassis: ^0.0.1
+  chassis_flutter: ^0.0.1
+  provider: ^6.0.0
+```
 
 ## Next Steps
 
-For more advanced concepts, tutorials, and best practices, please see the full **[documentation](https://affordant.gitbook.io/chassis/)**.
+* **[Quick Start](../documentation/00_quick_start.md)** - Build a complete application
+* **[UI Integration](../documentation/04_ui_integration.md)** - Deep dive into ViewModel and AsyncBuilder
+* **[Core Architecture](../documentation/01_core_architecture.md)** - Understand the architectural principles
+* **[chassis](../chassis/README.md)** - Core package documentation
+
+## License
+
+MIT License - See [LICENSE](../LICENSE) for details.
