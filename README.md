@@ -8,11 +8,11 @@ Chassis organizes applications into three distinct layers—UI, Logic, and Data�
 
 ## Quick Links
 
-📖 **[Documentation](documentation/00_quick_start.md)** - Get started in 5 minutes
-📦 **[Pub.dev - chassis](https://pub.dev/packages/chassis)** - Core architectural primitives
-📦 **[Pub.dev - chassis_flutter](https://pub.dev/packages/chassis_flutter)** - Flutter UI integration
-📦 **[Pub.dev - chassis_builder](https://pub.dev/packages/chassis_builder)** - Code generation tools
-🔗 **[API Reference](https://pub.dev/documentation/chassis/latest/)** - Complete API documentation
+- 📖 **[Documentation](documentation/00_quick_start.md)** - Get started in 5 minutes
+- 📦 **[Pub.dev - chassis](https://pub.dev/packages/chassis)** - Core architectural primitives
+- 📦 **[Pub.dev - chassis_flutter](https://pub.dev/packages/chassis_flutter)** - Flutter UI integration
+- 📦 **[Pub.dev - chassis_builder](https://pub.dev/packages/chassis_builder)** - Code generation tools
+- 🔗 **[API Reference](https://pub.dev/documentation/chassis/latest/)** - Complete API documentation
 
 ## Package Ecosystem
 
