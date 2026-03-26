@@ -119,7 +119,7 @@ packages:
       path: "../../chassis"
       relative: true
     source: path
-    version: "0.0.1+4"
+    version: "1.0.0"
   chassis_builder:
     dependency: "direct dev"
     description:

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:analyzer/dart/element/element.dart';
+import 'package:analyzer/dart/element/nullability_suffix.dart';
 import 'package:analyzer/dart/element/type.dart';
 import 'package:build/build.dart';
 import 'package:chassis/chassis.dart';
@@ -189,8 +190,36 @@ class RepositoryGenerator implements Generator {
   }
 
   Reference _referType(DartType type) {
-    final name = type.getDisplayString(withNullability: true);
     var uri = type.element?.librarySource?.uri.toString();
+
+    // Don't include URI for dart:core and dart:async (they're imported by default)
+    final isDefaultImport = uri != null &&
+        (uri.startsWith('dart:core') || uri.startsWith('dart:async'));
+    if (isDefaultImport) {
+      uri = null;
+    }
+
+    // Normalize dart: URIs to remove part file paths
+    // e.g., 'dart:ui/painting.dart' -> 'dart:ui'
+    if (uri != null && uri.startsWith('dart:')) {
+      final slashIndex = uri.indexOf('/');
+      if (slashIndex != -1) {
+        uri = uri.substring(0, slashIndex);
+      }
+    }
+
+    // For generic types (e.g. List<NotificationModel>), build a TypeReference
+    // with recursively resolved type arguments so each gets a proper import prefix.
+    if (type is InterfaceType && type.typeArguments.isNotEmpty) {
+      return TypeReference((t) => t
+        ..symbol = type.element.name
+        ..url = uri
+        ..isNullable =
+            type.nullabilitySuffix == NullabilitySuffix.question
+        ..types.addAll(type.typeArguments.map(_referType)));
+    }
+
+    final name = type.getDisplayString(withNullability: true);
     return refer(name, uri);
   }
 }
