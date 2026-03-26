@@ -21,64 +21,41 @@ abstract class Command<R> {
   const Command();
 }
 
-/// A handler that can execute commands of type [C] and return results of type [R].
+/// A handler that executes commands of type [C] and returns results of type [R].
 ///
 /// Command handlers encapsulate the business logic for executing specific commands.
 /// They are registered with the mediator and called when commands are dispatched.
 ///
+/// Handlers receive dependencies via constructor injection, keeping them testable
+/// and decoupled from concrete implementations.
+///
 /// Example usage:
 /// ```dart
-/// class CreateUserCommandHandler extends CommandHandler<CreateUserCommand, User> {
-///   CreateUserCommandHandler({required IUserRepository repository})
-///       : super((command) async {
-///             // Business logic to create user
-///             final user = await repository.create(
-///               name: command.name,
-///               email: command.email,
-///             );
-///             return user;
-///           });
-/// }
-///
-/// // For more complex scenarios, implement the interface instead:
 /// class CreateUserCommandHandler implements CommandHandler<CreateUserCommand, User> {
-///   final IUserRepository repository;
-///   final IAuditLogger auditLogger;
+///   final IUserRepository _repository;
+///   final IAuditLogger _auditLogger;
 ///
 ///   CreateUserCommandHandler({
-///     required this.repository,
-///     required this.auditLogger,
-///   });
+///     required IUserRepository repository,
+///     required IAuditLogger auditLogger,
+///   })  : _repository = repository,
+///         _auditLogger = auditLogger;
 ///
 ///   @override
 ///   Future<User> run(CreateUserCommand command) async {
-///     // More complex business logic with multiple dependencies
-///     await auditLogger.logAction('Creating user: ${command.email}');
+///     await _auditLogger.logAction('Creating user: ${command.email}');
 ///
-///     final user = await repository.create(
+///     final user = await _repository.create(
 ///       name: command.name,
 ///       email: command.email,
 ///     );
 ///
-///     await auditLogger.logAction('User created successfully: ${user.id}');
+///     await _auditLogger.logAction('User created successfully: ${user.id}');
 ///     return user;
 ///   }
 /// }
 /// ```
-class CommandHandler<C extends Command<R>, R> {
-  /// Creates a command handler with the given [run] callback.
-  const CommandHandler(CommandHandlerCallback<C, R> run) : _callback = run;
-
-  final CommandHandlerCallback<C, R> _callback;
-
+abstract interface class CommandHandler<C extends Command<R>, R> {
   /// Executes the given [command] and returns a future with the result.
-  Future<R> run(C command) {
-    return _callback.call(command);
-  }
+  Future<R> run(C command);
 }
-
-/// A callback function that handles the execution of a command.
-///
-/// This typedef defines the signature for command handler functions that take
-/// a command of type [C] and return a future with a result of type [R].
-typedef CommandHandlerCallback<C extends Command<R>, R> = Future<R> Function(C);

@@ -35,20 +35,35 @@
 ///   final String userId;
 /// }
 ///
-/// // Create the mediator instance
+/// // Implement a command handler
+/// class CreateUserCommandHandler implements CommandHandler<CreateUserCommand, User> {
+///   CreateUserCommandHandler(this._userRepository);
+///   final IUserRepository _userRepository;
+///
+///   @override
+///   Future<User> run(CreateUserCommand command) async {
+///     return await _userRepository.create(command.name, command.email);
+///   }
+/// }
+///
+/// // Implement a read handler
+/// class GetUserQueryHandler implements ReadHandler<GetUserQuery, User> {
+///   GetUserQueryHandler(this._userRepository);
+///   final IUserRepository _userRepository;
+///
+///   @override
+///   Future<User> read(GetUserQuery query) async {
+///     return await _userRepository.findById(query.userId);
+///   }
+/// }
+///
+/// // Create the mediator and register handlers
 /// final mediator = Mediator();
-///
-/// // Register handlers
 /// mediator.registerCommandHandler<CreateUserCommand, User>(
-///   CommandHandler<CreateUserCommand, User>(run: (command) async {
-///     return await userRepository.create(command.name, command.email);
-///   }),
+///   CreateUserCommandHandler(userRepository),
 /// );
-///
 /// mediator.registerQueryHandler<GetUserQuery, User>(
-///   ReadHandler<GetUserQuery, User>(read: (query) async {
-///     return await userRepository.findById(query.userId);
-///   }),
+///   GetUserQueryHandler(userRepository),
 /// );
 ///
 /// // Use the mediator

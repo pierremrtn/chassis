@@ -114,19 +114,7 @@ Handlers are plain Dart classes receiving and processing commands and queries. T
 
 A CommandHandler implements the `CommandHandler<C, R>` interface, where `C` is the command type and `R` is the return type. Handlers receive dependencies via constructor injection, following the Dependency Inversion Principle from the layered architecture. This pattern keeps handlers testable and prevents them from creating their own dependencies.
 
-For simple handlers with a single dependency, the `extends` syntax with a lambda provides concise implementation. For complex handlers coordinating multiple services, the `implements` syntax with explicit method implementation offers more control and clarity.
-
 ```dart
-// Simple handler using extends (single dependency)
-@chassisHandler
-class LogoutHandler extends CommandHandler<LogoutCommand, void> {
-  LogoutHandler(IAuthRepository authRepository)
-      : super((command) async {
-          await authRepository.logout();
-        });
-}
-
-// Complex handler using implements (multiple dependencies)
 @chassisHandler
 class CreateOrderHandler implements CommandHandler<CreateOrderCommand, Order> {
   final IOrderRepository _orderRepository;

@@ -52,9 +52,9 @@ class WatchUserQuery implements WatchQuery<User> {
 
 ```dart
 class CreateUserCommandHandler implements CommandHandler<CreateUserCommand, User> {
-  const CreateUserCommandHandler(this.repository);
+  CreateUserCommandHandler(this._repository);
 
-  final IUserRepository repository;
+  final IUserRepository _repository;
 
   @override
   Future<User> run(CreateUserCommand command) async {
@@ -63,7 +63,7 @@ class CreateUserCommandHandler implements CommandHandler<CreateUserCommand, User
       throw ValidationException('Email is required');
     }
 
-    return await repository.create(command.name, command.email);
+    return await _repository.create(command.name, command.email);
   }
 }
 ```
@@ -71,17 +71,29 @@ class CreateUserCommandHandler implements CommandHandler<CreateUserCommand, User
 **ReadHandler** - Executes one-time queries:
 
 ```dart
-final handler = ReadHandler<GetUserQuery, User>(
-  (query) async => await repository.findById(query.userId),
-);
+class GetUserQueryHandler implements ReadHandler<GetUserQuery, User> {
+  GetUserQueryHandler(this._repository);
+  final IUserRepository _repository;
+
+  @override
+  Future<User> read(GetUserQuery query) async {
+    return await _repository.findById(query.userId);
+  }
+}
 ```
 
 **WatchHandler** - Executes streaming queries:
 
 ```dart
-final handler = WatchHandler<WatchUserQuery, User>(
-  (query) => repository.watchById(query.userId),
-);
+class WatchUserQueryHandler implements WatchHandler<WatchUserQuery, User> {
+  WatchUserQueryHandler(this._repository);
+  final IUserRepository _repository;
+
+  @override
+  Stream<User> watch(WatchUserQuery query) {
+    return _repository.watchById(query.userId);
+  }
+}
 ```
 
 ### Mediator
@@ -97,9 +109,7 @@ mediator.registerCommandHandler<CreateUserCommand, User>(
 );
 
 mediator.registerQueryHandler<GetUserQuery, User>(
-  ReadHandler<GetUserQuery, User>(
-    (query) async => await userRepository.findById(query.userId),
-  ),
+  GetUserQueryHandler(userRepository),
 );
 
 // Dispatch operations

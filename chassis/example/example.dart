@@ -31,11 +31,17 @@ class WatchGreetingsQuery implements WatchQuery<String> {
   const WatchGreetingsQuery();
 }
 
-// Simple handler using extends
+// Simple handler using implements
 class WatchGreetingsQueryHandler
-    extends WatchHandler<WatchGreetingsQuery, String> {
-  WatchGreetingsQueryHandler(IGreetingRepository repository)
-      : super((query) => repository.getGreetingStream());
+    implements WatchHandler<WatchGreetingsQuery, String> {
+  WatchGreetingsQueryHandler(this._repository);
+
+  final IGreetingRepository _repository;
+
+  @override
+  Stream<String> watch(WatchGreetingsQuery query) {
+    return _repository.getGreetingStream();
+  }
 }
 
 // More complex handler using implements (for scenarios with multiple dependencies)

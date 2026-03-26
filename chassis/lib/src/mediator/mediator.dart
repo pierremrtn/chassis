@@ -13,17 +13,13 @@ import 'middleware.dart';
 /// // Create the mediator instance
 /// final mediator = Mediator();
 ///
-/// // Register handlers
+/// // Register handlers (handlers implement the handler interfaces)
 /// mediator.registerQueryHandler<GetUserQuery, User>(
-///   ReadHandler<GetUserQuery, User>(read: (query) async {
-///     return await userRepository.findById(query.userId);
-///   }),
+///   GetUserQueryHandler(userRepository),
 /// );
 ///
 /// mediator.registerCommandHandler<CreateUserCommand, User>(
-///   CommandHandler<CreateUserCommand, User>(run: (command) async {
-///     return await userRepository.create(command.name, command.email);
-///   }),
+///   CreateUserCommandHandler(userRepository),
 /// );
 ///
 /// // Use the mediator
@@ -48,9 +44,7 @@ class Mediator {
   /// Example:
   /// ```dart
   /// mediator.registerQueryHandler<GetUserQuery, User>(
-  ///   ReadHandler<GetUserQuery, User>((query) async {
-  ///     return await userRepository.findById(query.userId);
-  ///   }),
+  ///   GetUserQueryHandler(userRepository),
   /// );
   /// ```
   void registerQueryHandler<Q extends Query<T>, T>(
@@ -84,9 +78,7 @@ class Mediator {
   /// Example:
   /// ```dart
   /// mediator.registerCommandHandler<CreateUserCommand, User>(
-  ///   CommandHandler<CreateUserCommand, User>((command) async {
-  ///     return await userRepository.create(command.name, command.email);
-  ///   }),
+  ///   CreateUserCommandHandler(userRepository),
   /// );
   /// ```
   void registerCommandHandler<C extends Command<T>, T>(

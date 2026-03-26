@@ -47,18 +47,26 @@ final class UserQueryA implements UserQuery {}
 
 final class UserQueryB implements UserQuery {}
 
-class UserQueryAHandler extends ReadHandler<UserQueryA, String> {
-  UserQueryAHandler() : super((_) async => "Hello A");
+class UserQueryAHandler implements ReadHandler<UserQueryA, String> {
+  @override
+  Future<String> read(UserQueryA query) async => "Hello A";
 }
 
-class UserQueryBHandler extends ReadHandler<UserQueryB, String> {
-  UserQueryBHandler() : super((_) async => "Hello B");
+class UserQueryBHandler implements ReadHandler<UserQueryB, String> {
+  @override
+  Future<String> read(UserQueryB query) async => "Hello B";
 }
 
 class InlineAppSettingsHandler
-    extends ReadHandler<ReadAppSettingsQuery, AppSettings> {
-  InlineAppSettingsHandler({required ISomeRepo repo})
-      : super((_) => repo.test());
+    implements ReadHandler<ReadAppSettingsQuery, AppSettings> {
+  InlineAppSettingsHandler({required this.repo});
+
+  final ISomeRepo repo;
+
+  @override
+  Future<AppSettings> read(ReadAppSettingsQuery query) {
+    return repo.test();
+  }
 }
 
 void main() {
