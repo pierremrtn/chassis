@@ -281,20 +281,25 @@ AppMediator({
 
 For generation to work correctly, repository methods must follow these conventions:
 
-**Return Types:**
-- `Future<T>` for read queries → generates `ReadQuery<T>`
-- `Stream<T>` for watch queries → generates `WatchQuery<T>`
-- `Future<T>` for commands → generates `Command<T>`
+**Annotations:**
+- `@generateQueryHandler` on read/watch methods → generates a `ReadQuery<T>` or `WatchQuery<T>` with its handler
+- `@generateCommandHandler` on mutation methods → generates a `Command<T>` with its handler
 
-**Naming Conventions:**
+**Return Types:**
+- `Future<T>` + `@generateQueryHandler` → generates `ReadQuery<T>`
+- `Stream<T>` + `@generateQueryHandler` → generates `WatchQuery<T>`
+- `Future<T>` or `Future<void>` + `@generateCommandHandler` → generates `Command<T>`
+
+**Naming Conventions (recommended, not enforced):**
+The generator derives class names from the method name (e.g., `getUser` → `GetUserQuery`, `createUser` → `CreateUserCommand`). For readability, prefer descriptive prefixes:
 - Read queries: `getX`, `fetchX`, `loadX`, `findX`
 - Watch queries: `watchX`, `observeX`, `streamX`
 - Commands: `createX`, `updateX`, `deleteX`, `removeX`, `saveX`
 
 **Parameter Types:**
-- Use Dart primitives (`String`, `int`, `bool`, `double`)
-- Use custom classes (they become DTO fields)
-- Avoid optional parameters
+- Dart primitives and custom classes are supported
+- Named and optional parameters are fully preserved in the generated DTOs
+- Required parameters become `required` in the generated constructor, optional ones remain optional with their default values
 
 ## Troubleshooting
 
