@@ -86,7 +86,8 @@ class RepositoryGenerator implements Generator {
     // 1. Generate DTO (Command or Query)
     final dtoClass = Class((c) => c
       ..name = dtoName
-      ..implements.add(isCommand
+      ..modifier = ClassModifier.final$
+      ..extend = (isCommand
           ? TypeReference((t) => t
             ..symbol = 'Command'
             ..types.add(_getReturnType(method.returnType)))
@@ -94,7 +95,6 @@ class RepositoryGenerator implements Generator {
             ..symbol = queryInterface
             ..types.add(_getReturnType(method.returnType))))
       ..constructors.add(Constructor((ctor) => ctor
-        ..constant = true
         ..optionalParameters
             .addAll(method.parameters.map((p) => Parameter((param) => param
               ..name = p.name

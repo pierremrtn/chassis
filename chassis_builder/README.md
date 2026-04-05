@@ -113,8 +113,8 @@ import 'package:chassis/chassis.dart';
 import 'package:myapp/user_repository.dart';
 
 // Generated Query
-class GetUserQuery implements ReadQuery<User> {
-  const GetUserQuery({required this.id});
+final class GetUserQuery extends ReadQuery<User> {
+  GetUserQuery({required this.id});
   final String id;
 }
 
@@ -131,8 +131,8 @@ class GetUserQueryHandler implements ReadHandler<GetUserQuery, User> {
 }
 
 // Generated Watch Query
-class WatchActiveUsersQuery implements WatchQuery<List<User>> {
-  const WatchActiveUsersQuery();
+final class WatchActiveUsersQuery extends WatchQuery<List<User>> {
+  WatchActiveUsersQuery();
 }
 
 // Generated Watch Handler
@@ -148,8 +148,8 @@ class WatchActiveUsersQueryHandler implements WatchHandler<WatchActiveUsersQuery
 }
 
 // Generated Command
-class CreateUserCommand implements Command<void> {
-  const CreateUserCommand({
+final class CreateUserCommand extends Command<void> {
+  CreateUserCommand({
     required this.name,
     required this.email,
   });

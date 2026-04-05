@@ -6,8 +6,8 @@
 ///
 /// Example usage:
 /// ```dart
-/// class CreateUserCommand extends Command<User> {
-///   const CreateUserCommand({
+/// final class CreateUserCommand extends Command<User> {
+///   CreateUserCommand({
 ///     required this.name,
 ///     required this.email,
 ///   });
@@ -16,10 +16,7 @@
 ///   final String email;
 /// }
 /// ```
-abstract class Command<R> {
-  /// Creates a new command.
-  const Command();
-}
+abstract base class Command<R> {}
 
 /// A handler that executes commands of type [C] and returns results of type [R].
 ///

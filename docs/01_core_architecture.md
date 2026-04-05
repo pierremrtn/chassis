@@ -106,23 +106,23 @@ This separation improves reasoning about side effects. When you see a Query in c
 
 ```dart
 // Command: Mutates state, may return a result
-class UpdateUserEmailCommand implements Command<void> {
-  const UpdateUserEmailCommand({required this.userId, required this.newEmail});
+final class UpdateUserEmailCommand extends Command<void> {
+  UpdateUserEmailCommand({required this.userId, required this.newEmail});
 
   final String userId;
   final String newEmail;
 }
 
 // Query (Read): Fetches data without mutation
-class GetUserQuery implements ReadQuery<User> {
-  const GetUserQuery({required this.userId});
+final class GetUserQuery extends ReadQuery<User> {
+  GetUserQuery({required this.userId});
 
   final String userId;
 }
 
 // Query (Watch): Streams data without mutation
-class WatchUserQuery implements WatchQuery<User> {
-  const WatchUserQuery({required this.userId});
+final class WatchUserQuery extends WatchQuery<User> {
+  WatchUserQuery({required this.userId});
 
   final String userId;
 }

@@ -7,8 +7,8 @@
 import 'package:chassis/chassis.dart';
 import 'package:example/user_repository.dart';
 
-class GetUserQuery implements ReadQuery<String> {
-  const GetUserQuery({required String this.id});
+final class GetUserQuery extends ReadQuery<String> {
+  GetUserQuery({required String this.id});
 
   final String id;
 }
@@ -25,8 +25,8 @@ class GetUserQueryHandler implements ReadHandler<GetUserQuery, String> {
   }
 }
 
-class WatchUserQuery implements WatchQuery<String> {
-  const WatchUserQuery({required String this.id});
+final class WatchUserQuery extends WatchQuery<String> {
+  WatchUserQuery({required String this.id});
 
   final String id;
 }
@@ -43,8 +43,8 @@ class WatchUserQueryHandler implements WatchHandler<WatchUserQuery, String> {
   }
 }
 
-class CreateUserCommand implements Command<void> {
-  const CreateUserCommand({
+final class CreateUserCommand extends Command<void> {
+  CreateUserCommand({
     required String this.name,
     required String this.email,
   });

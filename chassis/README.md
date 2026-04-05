@@ -17,8 +17,8 @@ The `chassis` package implements three foundational patterns:
 **Command** - Represents an intent to modify state:
 
 ```dart
-class CreateUserCommand extends Command<User> {
-  const CreateUserCommand({
+final class CreateUserCommand extends Command<User> {
+  CreateUserCommand({
     required this.name,
     required this.email,
   });
@@ -31,8 +31,8 @@ class CreateUserCommand extends Command<User> {
 **ReadQuery** - One-time data fetch:
 
 ```dart
-class GetUserQuery implements ReadQuery<User> {
-  const GetUserQuery({required this.userId});
+final class GetUserQuery extends ReadQuery<User> {
+  GetUserQuery({required this.userId});
   final String userId;
 }
 ```
@@ -40,8 +40,8 @@ class GetUserQuery implements ReadQuery<User> {
 **WatchQuery** - Continuous stream of updates:
 
 ```dart
-class WatchUserQuery implements WatchQuery<User> {
-  const WatchUserQuery({required this.userId});
+final class WatchUserQuery extends WatchQuery<User> {
+  WatchUserQuery({required this.userId});
   final String userId;
 }
 ```

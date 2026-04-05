@@ -147,8 +147,7 @@ import '../data/todo.dart';
 import '../data/todo_repository.dart';
 
 // Query to reactively watch the todo list
-class WatchTodosQuery implements WatchQuery<List<Todo>> {
-  const WatchTodosQuery();
+final class WatchTodosQuery extends WatchQuery<List<Todo>> {
 }
 
 @chassisHandler // Enables automatic registration and type-safe extensions
@@ -164,8 +163,8 @@ class WatchTodosQueryHandler implements WatchHandler<WatchTodosQuery, List<Todo>
 }
 
 // Command to add a new todo
-class AddTodoCommand implements Command<void> {
-  const AddTodoCommand({required this.title});
+final class AddTodoCommand extends Command<void> {
+  AddTodoCommand({required this.title});
 
   final String title;
 }
@@ -183,8 +182,8 @@ class AddTodoCommandHandler implements CommandHandler<AddTodoCommand, void> {
 }
 
 // Command to toggle todo completion status
-class ToggleTodoCommand implements Command<void> {
-  const ToggleTodoCommand({required this.id});
+final class ToggleTodoCommand extends Command<void> {
+  ToggleTodoCommand({required this.id});
 
   final String id;
 }

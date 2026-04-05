@@ -41,7 +41,7 @@ class LoginHandler implements CommandHandler<LoginCommand, void> {
   }
 }
 
-class LoginCommand extends Command<void> {
+final class LoginCommand extends Command<void> {
   final String username;
   final Color test;
   LoginCommand(this.username, {this.test = const Color(0x000000)});
@@ -59,12 +59,12 @@ class GetProfileHandler implements ReadHandler<GetProfileQuery, String> {
   }
 }
 
-class GetProfileQuery extends ReadQuery<String> {
+final class GetProfileQuery extends ReadQuery<String> {
   final String userId;
   GetProfileQuery(this.userId);
 }
 
-class GetAppConfigQuery extends ReadQuery<String> {
+final class GetAppConfigQuery extends ReadQuery<String> {
   GetAppConfigQuery();
 }
 

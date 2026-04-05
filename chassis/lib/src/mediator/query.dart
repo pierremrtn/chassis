@@ -14,13 +14,13 @@ sealed class Query<T> {}
 ///
 /// Example usage:
 /// ```dart
-/// class GetUserQuery implements ReadQuery<User> {
-///   const GetUserQuery({required this.userId});
+/// final class GetUserQuery extends ReadQuery<User> {
+///   GetUserQuery({required this.userId});
 ///
 ///   final String userId;
 /// }
 /// ```
-abstract class ReadQuery<T> implements Query<T> {}
+abstract base class ReadQuery<T> implements Query<T> {}
 
 /// Abstract interface for streaming queries that watch for changes.
 ///
@@ -30,19 +30,19 @@ abstract class ReadQuery<T> implements Query<T> {}
 ///
 /// Example usage:
 /// ```dart
-/// class WatchUserQuery implements WatchQuery<User> {
-///   const WatchUserQuery({required this.userId});
+/// final class WatchUserQuery extends WatchQuery<User> {
+///   WatchUserQuery({required this.userId});
 ///
 ///   final String userId;
 /// }
 /// ```
-abstract class WatchQuery<T> implements Query<T> {}
+abstract base class WatchQuery<T> implements Query<T> {}
 
 /// Abstract base class for query handlers.
 ///
 /// This class serves as a common interface for both [ReadHandler] and
 /// [WatchHandler] implementations.
-class QueryHandler<Q extends Query<R>, R> {}
+sealed class QueryHandler<Q extends Query<R>, R> {}
 
 /// A handler that executes one-time read queries of type [Q] and returns results of type [R].
 ///
@@ -127,4 +127,3 @@ abstract interface class WatchHandler<Q extends WatchQuery<R>, R>
   /// Executes the given [query] and returns a stream of results.
   Stream<R> watch(Q query);
 }
-

@@ -8,17 +8,17 @@ This guide explores the Application layer—where your business logic lives. Whi
 
 Commands represent an intent to change application state. They are immutable data structures carrying the parameters needed to perform an action, named after business operations rather than technical implementations. A command should describe what you want to accomplish—UpdateUserEmail, ProcessPayment, SubmitOrder—not how the system will accomplish it.
 
-Commands must be immutable to prevent accidental mutations during handling. Use `final` fields and `const` constructors wherever possible. The type parameter `R` in `Command<R>` specifies what the command returns—use `void` for operations that produce no result, or a concrete type for operations that return created or updated entities.
+Commands must be immutable to prevent accidental mutations during handling. Use `final` fields so the command cannot be mutated after construction. The type parameter `R` in `Command<R>` specifies what the command returns—use `void` for operations that produce no result, or a concrete type for operations that return created or updated entities.
 
 ```dart
 // Simple command (void return)
-class LogoutCommand implements Command<void> {
-  const LogoutCommand();
+final class LogoutCommand extends Command<void> {
+  LogoutCommand();
 }
 
 // Command with parameters and return value
-class CreateOrderCommand implements Command<Order> {
-  const CreateOrderCommand({
+final class CreateOrderCommand extends Command<Order> {
+  CreateOrderCommand({
     required this.userId,
     required this.items,
     required this.shippingAddress,
@@ -30,8 +30,8 @@ class CreateOrderCommand implements Command<Order> {
 }
 
 // Command with validation
-class UpdateUserEmailCommand implements Command<void> {
-  const UpdateUserEmailCommand({
+final class UpdateUserEmailCommand extends Command<void> {
+  UpdateUserEmailCommand({
     required this.userId,
     required this.newEmail,
   }) : assert(newEmail.length > 0, 'Email cannot be empty');
@@ -51,8 +51,8 @@ In modern reactive Flutter applications, most data should come from WatchQuery s
 
 ```dart
 // One-time data export operation
-class ExportUserDataQuery implements ReadQuery<ExportFile> {
-  const ExportUserDataQuery({
+final class ExportUserDataQuery extends ReadQuery<ExportFile> {
+  ExportUserDataQuery({
     required this.userId,
     required this.format,
   });
@@ -62,8 +62,8 @@ class ExportUserDataQuery implements ReadQuery<ExportFile> {
 }
 
 // Validation check that doesn't need reactivity
-class ValidatePromoCodeQuery implements ReadQuery<PromoCodeValidation> {
-  const ValidatePromoCodeQuery({
+final class ValidatePromoCodeQuery extends ReadQuery<PromoCodeValidation> {
+  ValidatePromoCodeQuery({
     required this.code,
     required this.userId,
   });
@@ -77,15 +77,15 @@ WatchQuery handles reactive data streams that update over time. This should be y
 
 ```dart
 // User profile that updates when data changes
-class WatchUserProfileQuery implements WatchQuery<UserProfile> {
-  const WatchUserProfileQuery({required this.userId});
+final class WatchUserProfileQuery extends WatchQuery<UserProfile> {
+  WatchUserProfileQuery({required this.userId});
 
   final String userId;
 }
 
 // Product search results that update as inventory changes
-class WatchProductSearchQuery implements WatchQuery<List<Product>> {
-  const WatchProductSearchQuery({
+final class WatchProductSearchQuery extends WatchQuery<List<Product>> {
+  WatchProductSearchQuery({
     required this.searchTerm,
     this.category,
     this.maxPrice,
@@ -97,8 +97,8 @@ class WatchProductSearchQuery implements WatchQuery<List<Product>> {
 }
 
 // Shopping cart that updates when items are added/removed
-class WatchCartQuery implements WatchQuery<ShoppingCart> {
-  const WatchCartQuery({required this.userId});
+final class WatchCartQuery extends WatchQuery<ShoppingCart> {
+  WatchCartQuery({required this.userId});
 
   final String userId;
 }
@@ -112,7 +112,7 @@ Handlers are plain Dart classes receiving and processing commands and queries. T
 
 ### CommandHandler Structure
 
-A CommandHandler implements the `CommandHandler<C, R>` interface, where `C` is the command type and `R` is the return type. Handlers receive dependencies via constructor injection, following the Dependency Inversion Principle from the layered architecture. This pattern keeps handlers testable and prevents them from creating their own dependencies.
+A CommandHandler implements the `CommandHandler<C, R>` interface (using `implements`), where `C` is the command type and `R` is the return type. Handlers receive dependencies via constructor injection, following the Dependency Inversion Principle from the layered architecture. This pattern keeps handlers testable and prevents them from creating their own dependencies.
 
 ```dart
 @chassisHandler

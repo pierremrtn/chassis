@@ -27,8 +27,8 @@ class GreetingRepository implements IGreetingRepository {
 }
 
 // domain/uses_cases
-class WatchGreetingsQuery implements WatchQuery<String> {
-  const WatchGreetingsQuery();
+final class WatchGreetingsQuery extends WatchQuery<String> {
+  WatchGreetingsQuery();
 }
 
 // Simple handler using implements
@@ -74,7 +74,7 @@ Future<void> main() async {
 
   // Watch the greeting stream
   final subscription =
-      mediator.watch(const WatchGreetingsQuery()).listen((greeting) {
+      mediator.watch(WatchGreetingsQuery()).listen((greeting) {
     print(greeting);
   });
 

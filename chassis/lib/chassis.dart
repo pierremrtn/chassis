@@ -23,15 +23,15 @@
 /// import 'package:chassis/chassis.dart';
 ///
 /// // Define a command
-/// class CreateUserCommand extends Command<User> {
-///   const CreateUserCommand({required this.name, required this.email});
+/// final class CreateUserCommand extends Command<User> {
+///   CreateUserCommand({required this.name, required this.email});
 ///   final String name;
 ///   final String email;
 /// }
 ///
 /// // Define a query
-/// class GetUserQuery implements ReadQuery<User> {
-///   const GetUserQuery({required this.userId});
+/// final class GetUserQuery extends ReadQuery<User> {
+///   GetUserQuery({required this.userId});
 ///   final String userId;
 /// }
 ///

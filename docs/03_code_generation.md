@@ -96,8 +96,8 @@ Compare the manual approach from the Quick Start guide with the generated approa
 
 ```dart
 // MANUAL (approximately 80 lines for simple CRUD)
-class GetUserQuery implements ReadQuery<User> {
-  const GetUserQuery({required this.userId});
+final class GetUserQuery extends ReadQuery<User> {
+  GetUserQuery({required this.userId});
   final String userId;
 }
 
@@ -153,8 +153,8 @@ The generator produces complete query classes and handlers:
 ```dart
 // Generated in user_repository.handlers.dart
 
-class GetUserQuery implements ReadQuery<User> {
-  const GetUserQuery({required this.userId});
+final class GetUserQuery extends ReadQuery<User> {
+  GetUserQuery({required this.userId});
   final String userId;
 }
 
@@ -169,8 +169,8 @@ class GetUserQueryHandler implements ReadHandler<GetUserQuery, User> {
   }
 }
 
-class WatchUserQuery implements WatchQuery<User> {
-  const WatchUserQuery({required this.userId});
+final class WatchUserQuery extends WatchQuery<User> {
+  WatchUserQuery({required this.userId});
   final String userId;
 }
 
@@ -211,8 +211,8 @@ abstract interface class IUserRepository {
 The generated commands mirror the parameter structure:
 
 ```dart
-class CreateUserCommand implements Command<User> {
-  const CreateUserCommand({
+final class CreateUserCommand extends Command<User> {
+  CreateUserCommand({
     required this.name,
     required this.email,
   });
@@ -377,8 +377,8 @@ import 'package:chassis/chassis.dart';
 import '../documentation/todo.dart';
 import '../documentation/todo_repository.dart';
 
-class WatchTodosQuery implements WatchQuery<List<Todo>> {
-  const WatchTodosQuery();
+final class WatchTodosQuery extends WatchQuery<List<Todo>> {
+  WatchTodosQuery();
 }
 
 @chassisHandler
@@ -392,8 +392,8 @@ class WatchTodosQueryHandler implements WatchHandler<WatchTodosQuery, List<Todo>
   }
 }
 
-class AddTodoCommand implements Command<void> {
-  const AddTodoCommand({required this.title});
+final class AddTodoCommand extends Command<void> {
+  AddTodoCommand({required this.title});
   final String title;
 }
 
@@ -408,8 +408,8 @@ class AddTodoCommandHandler implements CommandHandler<AddTodoCommand, void> {
   }
 }
 
-class ToggleTodoCommand implements Command<void> {
-  const ToggleTodoCommand({required this.id});
+final class ToggleTodoCommand extends Command<void> {
+  ToggleTodoCommand({required this.id});
   final String id;
 }
 
