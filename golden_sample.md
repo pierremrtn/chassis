@@ -12,4 +12,4 @@ A common architectural challenge is distinguishing between persistent state and 
 
 **State** represents the data that should be displayed on the screen at any given moment, such as a list of users or the text in a form field. If the user rotates their device or navigates away and back, this state should persist.
 
-**Events**, in contrast, are one-time occurrences. A snackbar notification, a navigation action, or a vibration feedback are ephemeral; they happen once and should not be replayed if the UI rebuilds. Chassis solves this by providing distinct channels for `state` (observed by the UI) and `events` (listened to by the `ConsumerMixin`).
+**Events**, in contrast, are one-time occurrences. A snackbar notification, a navigation action, or a vibration feedback are ephemeral; they happen once and should not be replayed if the UI rebuilds. Chassis solves this by providing distinct channels for `state` (observed by the UI) and `events` (listened to via `ViewModelProvider.withEvents` or `ConsumerMixin`).

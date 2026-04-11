@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:chassis/chassis.dart';
 import 'package:chassis_flutter/chassis_flutter.dart';
 import 'package:chassis_flutter/src/safe_notifier.dart';
 import 'package:flutter/foundation.dart';

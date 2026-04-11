@@ -109,31 +109,41 @@ final viewModel = context.watch<UserProfileViewModel>();
 final viewModel = context.read<UserProfileViewModel>();
 ```
 
-### ConsumerMixin
+### Listening to events
 
-Handles one-time events from ViewModels with automatic subscription cleanup:
+Handle one-time events from a ViewModel via `ViewModelProvider.withEvents`, which wires up the subscription at the point of provision and cleans it up automatically:
 
 ```dart
-class _UserProfileScreenState extends State<UserProfileScreen> with ConsumerMixin {
+ViewModelProvider.withEvents<UserProfileViewModel, UserProfileEvent>(
+  create: (_) => UserProfileViewModel(mediator),
+  onEvent: (context, viewModel, event) {
+    switch (event) {
+      case UserUpdatedEvent():
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Profile updated')),
+        );
+    }
+  },
+  child: UserProfileScreen(),
+);
+```
+
+The `context` passed to `onEvent` sits *above* the provided ViewModel in the tree, so `ScaffoldMessenger.of(context)` and `Navigator.of(context)` work as expected. Use the `viewModel` argument instead of `context.read` when you need the VM itself.
+
+When a descendant widget deep in the subtree needs to listen to a ViewModel provided by an ancestor, use `ConsumerMixin` instead:
+
+```dart
+class _UserProfileDetailsState extends State<UserProfileDetails> with ConsumerMixin {
   @override
   void initState() {
     super.initState();
-
     onEvent<UserProfileViewModel, UserProfileEvent>((event) {
-      switch (event) {
-        case UserUpdatedEvent():
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Profile updated')),
-          );
-      }
+      // React to events from an ancestor-provided VM.
     });
   }
 
   @override
-  Widget build(BuildContext context) {
-    final viewModel = context.watch<UserProfileViewModel>();
-    // Build UI
-  }
+  Widget build(BuildContext context) => const SizedBox();
 }
 ```
 
@@ -210,23 +220,13 @@ class TodoScreen extends StatefulWidget {
   State<TodoScreen> createState() => _TodoScreenState();
 }
 
-class _TodoScreenState extends State<TodoScreen> with ConsumerMixin {
+class _TodoScreenState extends State<TodoScreen> {
   final _textController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-
     context.read<TodoViewModel>().watchTodos();
-
-    onEvent<TodoViewModel, TodoEvent>((event) {
-      if (event is TodoAddedEvent) {
-        _textController.clear();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Todo added')),
-        );
-      }
-    });
   }
 
   @override
@@ -310,8 +310,15 @@ void main() {
   final mediator = AppMediator(todoRepository: TodoRepository());
 
   runApp(MaterialApp(
-    home: ViewModelProvider<TodoViewModel>(
+    home: ViewModelProvider.withEvents<TodoViewModel, TodoEvent>(
       create: (_) => TodoViewModel(mediator),
+      onEvent: (context, viewModel, event) {
+        if (event is TodoAddedEvent) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Todo added')),
+          );
+        }
+      },
       child: TodoScreen(),
     ),
   ));

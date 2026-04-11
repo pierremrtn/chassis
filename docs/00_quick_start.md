@@ -316,7 +316,7 @@ State immutability ensures predictable behavior — the `copyWith` pattern creat
 
 ### Building the UI
 
-The UI layer observes state changes and dispatches user interactions to the ViewModel. The `AsyncBuilder` widget automatically renders appropriate UI based on whether data is loading, available, or errored. The `ConsumerMixin` handles event subscriptions, ensuring proper cleanup when widgets dispose.
+The UI layer observes state changes and dispatches user interactions to the ViewModel. The `AsyncBuilder` widget automatically renders appropriate UI based on whether data is loading, available, or errored. Event handling lives on the `ViewModelProvider.withEvents` call in `main`, keeping event side-effects co-located with provision.
 
 Create `lib/presentation/todo_screen.dart`:
 
@@ -334,23 +334,8 @@ class TodoScreen extends StatefulWidget {
   State<TodoScreen> createState() => _TodoScreenState();
 }
 
-class _TodoScreenState extends State<TodoScreen> with ConsumerMixin {
+class _TodoScreenState extends State<TodoScreen> {
   final _textController = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-
-    // ConsumerMixin provides easy to use method to subscribe to view-model events
-    onEvent<TodoViewModel, TodoEvent>((event) {
-      if (event is TodoAddedEvent) {
-        _textController.clear();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Todo added')),
-        );
-      }
-    });
-  }
 
   @override
   void dispose() {
@@ -438,7 +423,7 @@ class _TodoScreenState extends State<TodoScreen> with ConsumerMixin {
 }
 ```
 
-The `AsyncBuilder` widget eliminates manual state checking. It automatically renders the appropriate UI based on whether data is loading, available, or errored, simplifying your build methods significantly. The `ConsumerMixin` handles event subscriptions and ensures proper cleanup when the widget disposes, preventing memory leaks. The `TextEditingController` is cleared automatically when a todo is added via the `TodoAddedEvent`, demonstrating how events coordinate UI actions separate from state updates.
+The `AsyncBuilder` widget eliminates manual state checking. It automatically renders the appropriate UI based on whether data is loading, available, or errored, simplifying your build methods significantly. Event side-effects like the "Todo added" snackbar live on `ViewModelProvider.withEvents` in `main.dart` (below), keeping the screen focused on rendering and input.
 
 ### Putting It All Together
 
@@ -469,8 +454,15 @@ void main() {
   runApp(
     MaterialApp(
       title: 'Todo List',
-      home: ViewModelProvider<TodoViewModel>(
+      home: ViewModelProvider.withEvents<TodoViewModel, TodoEvent>(
         create: (_) => TodoViewModel(mediator),
+        onEvent: (context, viewModel, event) {
+          if (event is TodoAddedEvent) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Todo added')),
+            );
+          }
+        },
         child: const TodoScreen(),
       ),
     ),

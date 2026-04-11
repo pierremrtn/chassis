@@ -453,81 +453,72 @@ class NavigateToOrderConfirmationEvent implements CheckoutEvent {
 
 State determines what appears on screen right now. Events describe what should happen once in response to an action. This separation prevents bugs where snackbars show repeatedly or navigation happens multiple times due to widget rebuilds.
 
-### ConsumerMixin Usage
+### Listening to Events
 
-ConsumerMixin provides automatic event subscription management in StatefulWidgets, handling subscription lifecycle through `initState` and `dispose`. It ensures subscriptions are created when the widget initializes and cancelled when the widget disposes, preventing memory leaks.
+`ViewModelProvider.withEvents` is the preferred way to listen to a ViewModel's events. It creates the ViewModel, subscribes to its event stream, and invokes your callback for each emitted event — all in one place, with automatic subscription cleanup tied to the provider's lifetime.
 
 ```dart
-class CheckoutScreen extends StatefulWidget {
-  const CheckoutScreen({Key? key}) : super(key: key);
+ViewModelProvider.withEvents<CheckoutViewModel, CheckoutEvent>(
+  create: (_) => CheckoutViewModel(mediator),
+  onEvent: (context, viewModel, event) {
+    switch (event) {
+      case PaymentSuccessEvent(:final orderId):
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Payment successful! Order #$orderId')),
+        );
 
-  @override
-  State<CheckoutScreen> createState() => _CheckoutScreenState();
-}
+      case PaymentFailedEvent(:final reason):
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Payment Failed'),
+            content: Text(reason),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
 
-class _CheckoutScreenState extends State<CheckoutScreen> with ConsumerMixin {
+      case NavigateToOrderConfirmationEvent(:final orderId):
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => OrderConfirmationScreen(orderId: orderId),
+          ),
+        );
+    }
+  },
+  child: const CheckoutScreen(),
+);
+```
+
+The `context` passed to `onEvent` is the provider's own context — above the ViewModel it creates — so `ScaffoldMessenger.of(context)` and `Navigator.of(context)` work, but `context.read<CheckoutViewModel>()` does not. Use the `viewModel` callback argument when you need the VM itself. Pattern matching on sealed event types ensures exhaustive handling: the compiler requires handling all event types defined in the sealed hierarchy.
+
+Note that `.withEvents` creates the ViewModel eagerly (unlike the default constructor which is lazy), so events emitted during construction are not missed.
+
+#### ConsumerMixin for descendant listeners
+
+When a widget deep in the subtree needs to listen to a ViewModel provided by an ancestor, use `ConsumerMixin`. It handles subscription lifecycle through `initState` and `dispose`, and is the right tool when the listener is separated from the provider by intermediate widgets.
+
+```dart
+class _CartSummaryState extends State<CartSummary> with ConsumerMixin {
   @override
   void initState() {
     super.initState();
-
-    // Subscribe to events
     onEvent<CheckoutViewModel, CheckoutEvent>((event) {
-      switch (event) {
-        case PaymentSuccessEvent(:final orderId):
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Payment successful! Order #$orderId')),
-          );
-
-        case PaymentFailedEvent(:final reason):
-          showDialog(
-            context: context,
-            builder: (context) => AlertDialog(
-              title: const Text('Payment Failed'),
-              content: Text(reason),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('OK'),
-                ),
-              ],
-            ),
-          );
-
-        case NavigateToOrderConfirmationEvent(:final orderId):
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (context) => OrderConfirmationScreen(orderId: orderId),
-            ),
-          );
+      if (event is PaymentSuccessEvent) {
+        // React locally to an ancestor-provided VM's events.
       }
     });
   }
 
   @override
-  Widget build(BuildContext context) {
-    final viewModel = context.watch<CheckoutViewModel>();
-
-    return Scaffold(
-      appBar: AppBar(title: const Text('Checkout')),
-      body: Column(
-        children: [
-          AsyncBuilder<List<CartItem>>(
-            state: viewModel.state.cart,
-            builder: (context, items) => CartItemsList(items: items),
-          ),
-          ElevatedButton(
-            onPressed: viewModel.processPayment,
-            child: const Text('Complete Purchase'),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) => const SizedBox();
 }
 ```
-
-The `onEvent` method creates a subscription to the ViewModel's event stream, calling the provided callback each time an event is emitted. Subscriptions are stored internally and cancelled automatically when the widget disposes, preventing memory leaks from forgotten subscriptions. Pattern matching on sealed event types ensures exhaustive handling—the compiler requires handling all event types defined in the sealed hierarchy.
 
 ### Why Not Put Events in State?
 
@@ -676,13 +667,13 @@ Mocking the ViewModel isolates UI tests from business logic. The test verifies r
 
 ### Testing Event Handling
 
-Testing event-driven side effects requires simulating event emission through StreamControllers, allowing you to verify that widgets respond appropriately to ViewModel events.
+Testing event-driven side effects requires simulating event emission through a `StreamController` on the mock ViewModel, allowing you to verify that widgets respond appropriately. When the widget under test is wrapped in `ViewModelProvider.withEvents`, inject the mock through its `create:` callback and stub `dispose()` so the provider can tear down cleanly at the end of the test.
 
 ```dart
 testWidgets('shows snackbar on PaymentSuccessEvent', (tester) async {
   // Arrange
   final mockViewModel = MockCheckoutViewModel();
-  final eventController = StreamController<CheckoutEvent>();
+  final eventController = StreamController<CheckoutEvent>.broadcast();
 
   when(() => mockViewModel.state).thenReturn(CheckoutState(
     cart: Async.data([]),
@@ -690,12 +681,16 @@ testWidgets('shows snackbar on PaymentSuccessEvent', (tester) async {
     isProcessingPayment: false,
   ));
   when(() => mockViewModel.events).thenAnswer((_) => eventController.stream);
+  when(() => mockViewModel.dispose()).thenReturn(null);
 
   // Act
   await tester.pumpWidget(
     MaterialApp(
-      home: Provider<CheckoutViewModel>.value(
-        value: mockViewModel,
+      home: ViewModelProvider.withEvents<CheckoutViewModel, CheckoutEvent>(
+        create: (_) => mockViewModel,
+        onEvent: (context, viewModel, event) {
+          // Mirror the production onEvent, or reuse a shared function.
+        },
         child: const CheckoutScreen(),
       ),
     ),
@@ -708,10 +703,12 @@ testWidgets('shows snackbar on PaymentSuccessEvent', (tester) async {
   // Assert
   expect(find.text('Payment successful! Order #order123'), findsOneWidget);
   expect(find.byType(SnackBar), findsOneWidget);
+
+  addTearDown(eventController.close);
 });
 ```
 
-Simulating events through a StreamController allows testing UI reactions to ViewModel events without executing real business logic. The test verifies that snackbars appear, dialogs open, or navigation occurs in response to events, ensuring the event handling code works correctly.
+Note that `.withEvents` owns the VM's lifecycle, so the mock must tolerate `dispose()` being called. When the widget tree separates the provider from the listener, test the listener directly by wrapping it in a plain `Provider<CheckoutViewModel>.value` — `ConsumerMixin` tests don't need the dispose stub. For purely unit-level coverage of event handling logic, extract the `onEvent` callback into a top-level function and test it without any widget tree at all.
 
 For testing business logic independently of the UI, see [Business Logic](02_business_logic.md#testing-strategy).
 

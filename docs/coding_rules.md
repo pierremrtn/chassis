@@ -526,26 +526,24 @@ AsyncBuilder<User>(
 )
 ```
 
-### DO use `ConsumerMixin` for event subscriptions in `StatefulWidget`
+### DO use `ViewModelProvider.withEvents` to listen to events from a ViewModel you provide
 
-`ConsumerMixin` handles event subscriptions and ensures proper cleanup when the widget disposes, preventing memory leaks from forgotten subscriptions.
+`ViewModelProvider.withEvents` co-locates event handling with ViewModel provision and manages the subscription lifecycle automatically. Use `ConsumerMixin` only when a descendant widget needs to listen to a ViewModel provided by an ancestor, or when the event handler needs access to local state (controllers, local variables) held inside a `State` object.
 
 ```dart
-class _CheckoutScreenState extends State<CheckoutScreen> with ConsumerMixin {
-  @override
-  void initState() {
-    super.initState();
-    onEvent<CheckoutViewModel, CheckoutEvent>((event) {
-      switch (event) {
-        case PaymentSuccessEvent(:final orderId):
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Payment successful! Order #$orderId')),
-          );
-        // ...
-      }
-    });
-  }
-}
+ViewModelProvider.withEvents<CheckoutViewModel, CheckoutEvent>(
+  create: (_) => CheckoutViewModel(mediator),
+  onEvent: (context, viewModel, event) {
+    switch (event) {
+      case PaymentSuccessEvent(:final orderId):
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Payment successful! Order #$orderId')),
+        );
+      // ...
+    }
+  },
+  child: const CheckoutScreen(),
+);
 ```
 
 ### DO use `ViewModelProvider` for ViewModel dependency injection

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:chassis_flutter/src/view_model/view_model.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -84,6 +86,49 @@ class ViewModelProvider<T extends ViewModel<Object?, Object?>>
 
   final T? _value;
 
+  /// {@template view_model_provider_with_events}
+  /// Creates a [ViewModelProvider] that also subscribes to the view model's
+  /// events for the lifetime of the provider.
+  ///
+  /// The [onEvent] callback receives the provider's [BuildContext], the view
+  /// model instance, and the emitted event. The context sits *above* the
+  /// provided view model in the tree, so `ScaffoldMessenger.of(context)` and
+  /// `Navigator.of(context)` work, but `context.read<T>()` for this same view
+  /// model does not — use the [T] argument instead.
+  ///
+  /// The view model is created eagerly (unlike the default constructor which
+  /// is lazy) so that events emitted during construction are not missed.
+  ///
+  /// ```dart
+  /// ViewModelProvider.withEvents<UserViewModel, UserEvent>(
+  ///   create: (context) => UserViewModel(mediator),
+  ///   onEvent: (context, vm, event) {
+  ///     switch (event) {
+  ///       case UserCreatedEvent(:final user):
+  ///         ScaffoldMessenger.of(context).showSnackBar(
+  ///           SnackBar(content: Text('${user.name} created')),
+  ///         );
+  ///     }
+  ///   },
+  ///   child: UserScreen(),
+  /// );
+  /// ```
+  /// {@endtemplate}
+  static SingleChildWidget
+      withEvents<T extends ViewModel<Object?, E>, E>({
+    Key? key,
+    required T Function(BuildContext context) create,
+    required void Function(BuildContext context, T viewModel, E event) onEvent,
+    Widget? child,
+  }) {
+    return _ViewModelEventsProvider<T, E>(
+      key: key,
+      create: create,
+      onEvent: onEvent,
+      child: child,
+    );
+  }
+
   /// {@template view_model_provider_of}
   /// Method that allows widgets to access a [ViewModel] instance
   /// as long as their `BuildContext` contains a [ViewModelProvider] instance.
@@ -155,5 +200,53 @@ class ViewModelProvider<T extends ViewModel<Object?, Object?>>
   void debugFillProperties(DiagnosticPropertiesBuilder properties) {
     super.debugFillProperties(properties);
     properties.add(DiagnosticsProperty<bool>('lazy', lazy));
+  }
+}
+
+class _ViewModelEventsProvider<T extends ViewModel<Object?, E>, E>
+    extends SingleChildStatefulWidget {
+  const _ViewModelEventsProvider({
+    super.key,
+    required this.create,
+    required this.onEvent,
+    super.child,
+  });
+
+  final T Function(BuildContext context) create;
+  final void Function(BuildContext context, T viewModel, E event) onEvent;
+
+  @override
+  State<_ViewModelEventsProvider<T, E>> createState() =>
+      _ViewModelEventsProviderState<T, E>();
+}
+
+class _ViewModelEventsProviderState<T extends ViewModel<Object?, E>, E>
+    extends SingleChildState<_ViewModelEventsProvider<T, E>> {
+  late final T _viewModel;
+  late final StreamSubscription<E> _subscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _viewModel = widget.create(context);
+    _subscription = _viewModel.events.listen((event) {
+      if (!mounted) return;
+      widget.onEvent(context, _viewModel, event);
+    });
+  }
+
+  @override
+  void dispose() {
+    _subscription.cancel();
+    _viewModel.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget buildWithChild(BuildContext context, Widget? child) {
+    return ViewModelProvider<T>.value(
+      value: _viewModel,
+      child: child,
+    );
   }
 }
