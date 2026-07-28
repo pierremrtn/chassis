@@ -24,12 +24,12 @@ The Dependency Rule states that Handlers depend on Repository interfaces (not im
 ```dart
 // ✅ Correct: Handler depends on abstraction
 class CreateUserHandler implements CommandHandler<CreateUserCommand, User> {
-  final IUserRepository _repository; // Interface dependency
-  CreateUserHandler(this._repository);
+  final UserRepository repository; // Interface dependency
+  CreateUserHandler({required this.repository});
 
   @override
   Future<User> run(CreateUserCommand command) async {
-    return await _repository.create(command.name, command.email);
+    return await repository.create(command.name, command.email);
   }
 }
 
@@ -100,7 +100,7 @@ In modern reactive Flutter applications, most data should come from `WatchQuery`
 
 ### DO declare messages as `final class` using `extends`
 
-Commands and Queries must be declared as `final class` and use `extends` (not `implements`) for their base type. The Mediator performs handler lookup based on the runtime type hierarchy, and `extends` preserves the type relationship that this lookup depends on. Using `implements` breaks the resolution chain and causes runtime dispatch failures.
+Commands and Queries must be declared as `final class` and use `extends` (not `implements`) for their base type. The base types are declared `base`/`sealed`, so `implements Command<T>` outside the chassis package is rejected *by the compiler* — the resolution chain is protected by the language, not by convention. Declaring the message `final` additionally prevents subclassing, which would break the Mediator's exact-runtime-type handler lookup at dispatch time.
 
 ```dart
 // ✅ Correct: final class + extends
@@ -119,7 +119,7 @@ final class GetOrderQuery extends ReadQuery<Order> {
   final String orderId;
 }
 
-// ❌ Incorrect: implements — Mediator lookup will fail
+// ❌ Incorrect: implements — rejected by the compiler (Command is a base class)
 class CreateOrderCommand implements Command<Order> { /* ... */ }
 
 // ❌ Incorrect: not final — allows subclassing which breaks type resolution
@@ -153,6 +153,26 @@ final class UpdateUserEmailCommand extends Command<void> {
   final String newEmail;
 }
 ```
+
+### CONSIDER overriding `params` on messages to make traces readable
+
+Commands and Queries expose a `Map<String, Object?> get params` getter (empty by default) used by `toString()` and by `LoggingMiddleware`. Overriding it makes a trace read `UpdateUserEmailCommand{userId: u1}` instead of a bare type name, which pays off the first time you debug a production log.
+
+```dart
+final class UpdateUserEmailCommand extends Command<void> {
+  UpdateUserEmailCommand({required this.userId, required this.newEmail});
+
+  final String userId;
+  final String newEmail;
+
+  @override
+  Map<String, Object?> get params => {'userId': userId};
+}
+```
+
+### DON'T include secrets in `params`
+
+`params` flows into logs, traces, and any `ChassisLogSink` you plug into `LoggingMiddleware`. Passwords, tokens, and other credentials must never appear there — expose only the fields that are safe to persist in telemetry. Note how the example above deliberately omits `newEmail`-adjacent secrets: a `LoginCommand` would expose its `username` but never its `password`.
 
 ---
 
@@ -195,15 +215,19 @@ WatchAllActiveTicketsQuery
 WatchOrderStatusQuery
 ```
 
-### DO name Handlers by appending `Handler` to the full message name
+### DO name Handlers after their message, minus its `Command`/`Query` suffix, plus `Handler`
 
-The Handler's name is created by taking the full name of the Command or Query it handles and appending `Handler`. This mechanical naming convention ensures absolute predictability and discoverability.
+The Handler's name is the message name with its `Command`/`Query` suffix replaced by `Handler`: `CreateProjectCommand` → `CreateProjectHandler`, `GetProjectByIdQuery` → `GetProjectByIdHandler`. This mechanical naming convention ensures absolute predictability and discoverability. (The handler name is an implementation detail — the generated mediator method is always derived from the message, so this rule exists for humans navigating the codebase, not for the generator.)
 
 ```dart
 // good
+CreateProjectHandler
+GetProjectByIdHandler
+WatchOrderStatusHandler
+
+// bad — repeating the Command/Query suffix
 CreateProjectCommandHandler
 GetProjectByIdQueryHandler
-WatchOrderStatusQueryHandler
 ```
 
 ---
@@ -236,19 +260,18 @@ class CreateOrderHandler extends CommandHandler<CreateOrderCommand, Order> {
 
 ### DO inject dependencies via the Handler constructor
 
-Handlers receive Repositories and Services via constructor injection, following the Dependency Inversion Principle. This pattern keeps handlers testable and prevents them from creating their own dependencies.
+Handlers receive Repositories and Services via constructor injection, following the Dependency Inversion Principle. This pattern keeps handlers testable and prevents them from creating their own dependencies. The code generator injects the dependencies through the constructor — see [Code Generation](#code-generation).
 
 ```dart
 @chassisHandler
 class CreateOrderHandler implements CommandHandler<CreateOrderCommand, Order> {
-  final IOrderRepository _orderRepository;
-  final IPaymentGateway _paymentGateway;
+  final OrderRepository orderRepository;
+  final PaymentGateway paymentGateway;
 
   CreateOrderHandler({
-    required IOrderRepository orderRepository,
-    required IPaymentGateway paymentGateway,
-  })  : _orderRepository = orderRepository,
-        _paymentGateway = paymentGateway;
+    required this.orderRepository,
+    required this.paymentGateway,
+  });
 
   @override
   Future<Order> run(CreateOrderCommand command) async {
@@ -310,9 +333,9 @@ Each message-handler pair should live in its own file. Co-locating the message d
 lib/
   └── application/
       └── orders/
-          ├── create_order_command.dart       # CreateOrderCommand + CreateOrderCommandHandler
-          ├── get_order_query.dart            # GetOrderQuery + GetOrderQueryHandler
-          └── watch_order_status_query.dart   # WatchOrderStatusQuery + WatchOrderStatusQueryHandler
+          ├── create_order_command.dart       # CreateOrderCommand + CreateOrderHandler
+          ├── get_order_query.dart            # GetOrderQuery + GetOrderHandler
+          └── watch_order_status_query.dart   # WatchOrderStatusQuery + WatchOrderStatusHandler
 ```
 
 ### DO create one file per Command/Query-Handler pair
@@ -325,7 +348,7 @@ Splitting each pair into its own file enforces the single-responsibility princip
 
 ### DO annotate Handlers with `@chassisHandler` to trigger code generation
 
-The `@chassisHandler` annotation marks a handler for automatic registration in the generated Mediator. The `chassis_builder` scans for this annotation and produces the Mediator subclass, handler registrations, and type-safe extension methods. Without this annotation, the generator has no knowledge of the handler and it will not be wired into the dependency graph.
+The `@chassisHandler` annotation marks a handler for automatic registration in the generated mediator. The `chassis_builder` collects annotated handlers reachable from a `@ChassisApp` or `@chassisModule` library and produces the mediator class, handler registrations, and one typed dispatch method per handler. Without this annotation, the generator has no knowledge of the handler and it will not be wired into the dependency graph.
 
 ```dart
 @chassisHandler
@@ -335,8 +358,8 @@ class CreateOrderHandler implements CommandHandler<CreateOrderCommand, Order> {
     required this.paymentGateway,
   });
 
-  final IOrderRepository orderRepository;
-  final IPaymentGateway paymentGateway;
+  final OrderRepository orderRepository;
+  final PaymentGateway paymentGateway;
 
   @override
   Future<Order> run(CreateOrderCommand command) async {
@@ -345,12 +368,12 @@ class CreateOrderHandler implements CommandHandler<CreateOrderCommand, Order> {
 }
 ```
 
-### DO use named parameters for constructor dependencies in Handlers
+### PREFER named constructor parameters for handler dependencies
 
-Handler constructors should use named parameters for all injected dependencies (repositories, services, other handlers). The `chassis_builder` reads these constructor signatures to produce the generated Mediator's own constructor, so named parameters result in a clear, self-documenting dependency graph at the Mediator level.
+An annotated handler needs an unnamed generative constructor; its parameters — positional or named — are the dependencies the generated mediator injects, each passed back the way it is declared. Prefer named parameters, especially with two or more dependencies: registration sites and tests read unambiguously, and adding a dependency cannot silently swap two same-typed arguments.
 
 ```dart
-// ✅ Named parameters — generated Mediator constructor is readable
+// ✅ Preferred: named dependencies — unambiguous at every call site
 @chassisHandler
 class CreateOrderHandler implements CommandHandler<CreateOrderCommand, Order> {
   const CreateOrderHandler({
@@ -358,23 +381,36 @@ class CreateOrderHandler implements CommandHandler<CreateOrderCommand, Order> {
     required this.inventoryService,
   });
 
-  final IOrderRepository orderRepository;
-  final IInventoryService inventoryService;
+  final OrderRepository orderRepository;
+  final InventoryService inventoryService;
 }
 
-// ❌ Positional parameters — generated Mediator constructor becomes ambiguous
+// Acceptable for a single dependency: positional
 @chassisHandler
-class CreateOrderHandler implements CommandHandler<CreateOrderCommand, Order> {
-  const CreateOrderHandler(this.orderRepository, this.inventoryService);
+class DeleteOrderHandler implements CommandHandler<DeleteOrderCommand, void> {
+  const DeleteOrderHandler(this._orderRepository);
 
-  final IOrderRepository orderRepository;
-  final IInventoryService inventoryService;
+  final OrderRepository _orderRepository;
 }
 ```
 
-### DO use the generated `AppMediator` and its type-safe extension methods
+### DO declare the composition root with `@ChassisApp`
 
-The `chassis_builder` produces a Mediator subclass (e.g., `AppMediator`) that handles all handler registration and dependency injection, along with extension methods that provide a type-safe, autocomplete-friendly API. Always use this generated output rather than wiring handlers manually or dispatching raw message types. The generated extensions are the primary discoverability mechanism for your application's capabilities.
+Place `@ChassisApp` on the library directive of a library that imports your handlers (directly or via a barrel), listing any modules the app composes. The generator emits the concrete mediator in the adjacent `<file>.chassis.dart`: its constructor takes every deduplicated handler dependency as a required named parameter, registers all handlers, and implements each module's generated interface — so a missing handler is a compile error.
+
+```dart
+@ChassisApp(modules: [AuthModule], mediatorName: 'AppMediator')
+library;
+
+import 'main.chassis.dart';
+
+// Generated in main.chassis.dart:
+// class AppMediator extends Mediator implements AuthMediator { ... }
+```
+
+### DO use the generated mediator's typed methods
+
+The generated mediator exposes one typed instance method per handler — named after the *message* class, minus its `Query`/`Command` suffix (`GetProfileQuery` → `getProfile`), never after the handler: the message is the public concept, so renaming a handler (an implementation detail) does not change the generated API. Always use these methods rather than wiring handlers manually or dispatching raw message types: they are the primary discoverability mechanism for your application's capabilities, and every one of them dispatches through `run`/`read`/`watch`, so middleware always applies.
 
 ```dart
 // Generated by chassis_builder — use this directly
@@ -383,19 +419,19 @@ final mediator = AppMediator(
   paymentGateway: paymentGateway,
 );
 
-// Type-safe access via generated extensions
+// Type-safe access via the generated methods
 await mediator.createOrder(userId: userId, items: items);
 final order = await mediator.getOrder(orderId: orderId);
 mediator.watchOrderStatus(orderId: orderId).listen((status) { /* ... */ });
 ```
 
-### DO write Handlers by hand when using AI-assisted development
+### DO run `dart run build_runner build` after adding or changing a handler
 
-When working with an AI coding assistant, write Handlers manually rather than relying on `@generateHandler` annotations on repository methods. AI can produce the full handler implementation — including validation, orchestration, and error handling — just as quickly as a pass-through handler, and the result is more explicit, more flexible, and easier to review. Manual handlers also give you a natural place to add business logic later without migrating away from a generated handler.
+The generated mediator is only as fresh as the last build. After adding, renaming, or changing the constructor of any handler, re-run the generator (or keep `dart run build_runner watch` running during development). No `build.yaml` is required — the builder applies itself to any package that depends on `chassis_builder`.
 
-### CONSIDER using `@generateHandler` on repository methods when writing code by hand
+### DON'T edit generated `.chassis.dart` files
 
-When writing code without AI assistance, the `@generateHandler` annotation on repository methods eliminates boilerplate for standard CRUD operations that simply delegate to the repository. This is a convenience trade-off: you save time on repetitive handlers, but the generated code is less visible during review and harder to extend if the operation later requires business logic.
+Generated files are overwritten on every build. If the generated output looks wrong, fix the source — the handler's constructor, the message's constructor, or the annotation site — and rebuild.
 
 ---
 
@@ -407,8 +443,10 @@ ViewModels serve as the bridge between business logic and the widget tree. They 
 
 ```dart
 class UserProfileViewModel extends ViewModel<UserProfileState, UserProfileEvent> {
-  UserProfileViewModel(Mediator mediator)
-      : super(mediator, initial: UserProfileState.initial());
+  UserProfileViewModel(this._mediator) : super(UserProfileState.initial());
+
+  // Typed as the generated mediator to access its typed dispatch methods.
+  final AppMediator _mediator;
 }
 ```
 
@@ -442,20 +480,22 @@ The `Async<T>` sealed union models the complete lifecycle of asynchronous operat
 
 ### DO use `watch()` for reactive stream subscriptions and `run()` for one-time futures
 
-The `watch()` method subscribes to streams with automatic disposal. The `run()` method handles futures. Both support `onState` for full lifecycle control, or `onData`/`onError` for simpler handling.
+The `watch()` method subscribes to streams with automatic disposal. The `run()` method handles futures. Both share the same callback contract: `onState` (if provided) fires for every transition, and `onSuccess` (`run`) / `onData` (`watch`) and `onError` are additive conveniences fired after it — at least one callback is required. Pass `current:` so loading and error emissions carry the existing data, and use `key:` on `watch()` when a re-watch must replace the previous subscription.
 
 ```dart
 void loadUser(String userId) {
   watch(
-    mediator.watchUser(userId: userId),
+    _mediator.watchUser(userId: userId),
+    key: #user,             // Re-watching with a new id replaces the subscription
+    current: state.user,    // Loading/error emissions keep the current data
     onState: (asyncUser) => setState(state.copyWith(user: asyncUser)),
   );
 }
 
 void deleteUser(String userId) {
   run(
-    mediator.deleteUser(userId: userId),
-    onData: (_) => sendEvent(UserDeletedEvent()),
+    () => _mediator.deleteUser(userId: userId),
+    onSuccess: (_) => sendEvent(UserDeletedEvent()),
     onError: (error) => sendEvent(DeleteFailedEvent(error.toString())),
   );
 }
@@ -519,19 +559,67 @@ class ShowSnackbarEvent implements GoodEvent {
 
 ```dart
 AsyncBuilder<User>(
-  state: viewModel.state.user,
+  state: context.select((UserViewModel vm) => vm.state.user),
   builder: (context, user) => Text(user.name),
   loadingBuilder: (context) => CircularProgressIndicator(),
   errorBuilder: (context, error) => Text('Error: $error'),
 )
 ```
 
-### DO use `ViewModelProvider.withEvents` to listen to events from a ViewModel you provide
+### DON'T collapse an `Async<T>` error into a default with `valueOrNull ?? fallback`
 
-`ViewModelProvider.withEvents` co-locates event handling with ViewModel provision and manages the subscription lifecycle automatically. Use `ConsumerMixin` only when a descendant widget needs to listen to a ViewModel provided by an ancestor, or when the event handler needs access to local state (controllers, local variables) held inside a `State` object.
+`state.day.valueOrNull ?? JournalDay.empty(date)` renders an `AsyncError` as
+if it were data: on a screen's primary content the error becomes
+indistinguishable from a legitimately empty value, and nobody — user,
+developer, logs — knows anything failed.
+
+Degrading on error IS sometimes the right design: secondary or optional
+content whose absence is an acceptable rendering (a badge, an avatar ring, a
+coach quote); a section that falls back while the error is surfaced through
+another channel (screen-level banner, event → snackbar); `maintainState`
+keeping the previous data through a transient refetch error. The problem with
+`??` is that it cannot express that this was a decision — the same characters
+also spell "I forgot the error case".
+
+So route every collapse through the explicit channel: an `errorBuilder` (even
+one that returns the default or `SizedBox.shrink()`) states the degradation
+in code, is reviewable, and is greppable. A data-shaped fallback that encodes
+a business case ("document absent → empty day") belongs at the data layer,
+decided once in the repository — by the time a value is an `AsyncError`, it
+is not data anymore.
+
+bad
+```dart
+// Decision or accident? The reader cannot tell — and on primary
+// content it silently masks permission/network failures.
+JournalSections(
+  day: state.day.valueOrNull ?? JournalDay.empty(state.selectedDate),
+)
+```
+
+good
+```dart
+// Primary content: the error reaches a visible branch.
+AsyncBuilder<JournalDay>(
+  state: state.day,
+  builder: (context, day) => JournalSections(day: day),
+  errorBuilder: (context, error) => JournalUnavailableBanner(error: error),
+)
+
+// Optional content: degradation is the design — stated explicitly.
+AsyncBuilder<CoachQuote>(
+  state: state.quote,
+  builder: (context, quote) => CoachQuoteCard(quote: quote),
+  errorBuilder: (context, _) => const SizedBox.shrink(), // deliberate
+)
+```
+
+### DO use `ViewModelProvider.withEventListener` to listen to events from a ViewModel you provide
+
+`ViewModelProvider.withEventListener` co-locates event handling with ViewModel provision and manages the subscription lifecycle automatically. Use the `EventListener` widget when a descendant subtree needs to listen to a ViewModel provided by an ancestor, and `EventListenerMixin` only when the event handler needs access to local state (controllers, local variables) held inside a `State` object.
 
 ```dart
-ViewModelProvider.withEvents<CheckoutViewModel, CheckoutEvent>(
+ViewModelProvider.withEventListener<CheckoutViewModel, CheckoutEvent>(
   create: (_) => CheckoutViewModel(mediator),
   onEvent: (context, viewModel, event) {
     switch (event) {
@@ -565,22 +653,28 @@ ViewModelProvider<TodoViewModel>(
 
 ViewModels depend only on the Mediator, simplifying their constructor signatures. The Mediator wires handlers to their dependencies at startup and provides a single entry point for all business logic.
 
-### DO use the generated type-safe extension methods on the Mediator
+### DO use the mediator's generated typed methods
 
-Extension methods transform generic message dispatching into a clean, type-safe API where your IDE autocompletes every available operation. These are generated automatically by `chassis_builder` — see [Code Generation](#code-generation) for details.
+Typed methods transform generic message dispatching into a clean, type-safe API where your IDE autocompletes every available operation. They are instance methods of the mediator class generated by `chassis_builder` — see [Code Generation](#code-generation) for details.
 
 ### CONSIDER using Middleware for cross-cutting concerns
 
-Middleware intercepts messages before they reach handlers, enabling logging, performance monitoring, authentication checks, and caching to be implemented once rather than duplicated across handlers.
+Middleware intercepts messages before they reach handlers, enabling logging, performance monitoring, authentication checks, and caching to be implemented once rather than duplicated across handlers. For tracing, wire the built-in `LoggingMiddleware`; for custom concerns, extend `MediatorMiddleware` and override only the hooks you need — each has a pass-through default.
 
 ```dart
-class LoggingMiddleware implements MediatorMiddleware {
+// Built-in tracing: dispatch, outcome, duration, errors with stack traces
+mediator.addMiddleware(LoggingMiddleware());
+
+// Custom middleware
+class AuditMiddleware extends MediatorMiddleware {
+  AuditMiddleware(this._audit);
+
+  final AuditService _audit;
+
   @override
-  Future<T> onRun<T>(Command<T> command, NextRun<Command<T>, T> next) async {
-    print('Executing command: ${command.runtimeType}');
-    final result = await next(command);
-    print('Command completed');
-    return result;
+  Future<R> onRun<C extends Command<R>, R>(C command, NextRun<C, R> next) async {
+    await _audit.record(command);
+    return next(command);
   }
 }
 ```
@@ -602,9 +696,9 @@ A Repository interface defines what data operations are possible without specify
 Handlers are pure Dart classes testable without the Flutter framework. Inject mock repositories via the constructor and verify business logic without UI or database dependencies.
 
 ```dart
-test('CreateUserCommandHandler validates email', () async {
+test('CreateUserHandler validates email', () async {
   final mockRepository = MockUserRepository();
-  final handler = CreateUserCommandHandler(mockRepository);
+  final handler = CreateUserHandler(mockRepository);
 
   final command = CreateUserCommand(name: 'John', email: '');
 
@@ -619,19 +713,21 @@ test('CreateUserCommandHandler validates email', () async {
 
 ### DO test ViewModels by mocking the Mediator
 
-ViewModels depend on the Mediator interface, enabling tests with mocked Mediators instead of full dependency trees. This isolates the ViewModel from all downstream dependencies.
+ViewModels depend only on the mediator, enabling tests with a mocked mediator instead of full dependency trees. Mock the generated mediator class and stub its typed methods directly — this isolates the ViewModel from all downstream dependencies.
 
 ```dart
-test('loadUser dispatches WatchUserQuery', () {
-  final mockMediator = MockMediator();
-  final viewModel = UserViewModel(mockMediator);
+class MockAppMediator extends Mock implements AppMediator {}
 
-  when(() => mockMediator.watch(any<WatchUserQuery>()))
+test('loadUser watches the user', () {
+  final mockMediator = MockAppMediator();
+
+  when(() => mockMediator.watchUser(userId: '1'))
       .thenAnswer((_) => Stream.value(User(id: '1', name: 'John')));
 
+  final viewModel = UserViewModel(mockMediator);
   viewModel.loadUser('1');
 
-  verify(() => mockMediator.watch(any<WatchUserQuery>())).called(1);
+  verify(() => mockMediator.watchUser(userId: '1')).called(1);
 });
 ```
 
@@ -672,7 +768,8 @@ late final AppMediator mediator;
 
 void initializeDependencies() {
   final todoRepository = InMemoryTodoRepository();
-  mediator = AppMediator(todoRepository: todoRepository);
+  mediator = AppMediator(todoRepository: todoRepository)
+    ..addMiddleware(LoggingMiddleware());
 }
 
 void main() {

@@ -14,7 +14,7 @@ description: Render an `Async<T>` value in the widget tree using Chassis's `Asyn
 
 ## Core Concepts
 
-`Async<T>` is the sealed union that models the lifecycle of an asynchronous value: `AsyncLoading<T>`, `AsyncData<T>`, or `AsyncError<T>`. Both `AsyncLoading` and `AsyncError` can carry a `previous` value, which enables the UI to keep displaying valid data while a refetch is in flight or while a transient error is active.
+`Async<T>` is the sealed union that models the lifecycle of an asynchronous value: `AsyncData<T>(value)`, `AsyncLoading<T>({previous})`, or `AsyncError<T>(error, {stackTrace, previous})`. Both `AsyncLoading` and `AsyncError` can carry `previous` — typed `AsyncData<T>?`, not a bare `T?` — which enables the UI to keep displaying valid data while a refetch is in flight or while a transient error is active. Carrying the whole `AsyncData` makes "a value existed" provable even when `T` is nullable and the value itself is `null`: `Async<int?>.data(null).hasValue` is `true`, and `AsyncBuilder` renders the data branch for it.
 
 `AsyncBuilder<T>` is the widget that turns an `Async<T>` into a `Widget`. It takes:
 
@@ -31,12 +31,15 @@ The `builder` callback receives the unwrapped `T`, never `null`. No defensive nu
 
 ## Builder Resolution Rules
 
-The widget resolves which builder to call in this exact order:
+The widget pattern-matches on the sealed union in this exact order:
 
-1. **`state.hasValue && maintainState`** → `builder(context, state.valueOrNull!)`. This is the anti-flicker case: even if the state is `AsyncLoading(previous: data)` or `AsyncError(previous: data)`, the data builder runs.
-2. **`state.isLoading`** → `loadingBuilder` (or default spinner).
-3. **`state.hasError`** → `errorBuilder` (or empty box).
-4. **Fallback** → `SizedBox.shrink()`.
+1. **`AsyncData<T>(:value)`** → `builder(context, value)`.
+2. **`AsyncLoading<T>(previous: AsyncData(:value))` when `maintainState`** → `builder(context, value)`. Anti-flicker: the carried data keeps rendering during a refetch.
+3. **`AsyncError<T>(previous: AsyncData(:value))` when `maintainState`** → `builder(context, value)`. The soft-error case: a mid-stream failure keeps the last snapshot visible.
+4. **`AsyncLoading<T>()`** → `loadingBuilder` (or the default centered `CircularProgressIndicator`).
+5. **`AsyncError<T>(:error)`** → `errorBuilder(context, error)` (or `SizedBox.shrink()`).
+
+Because the match is on `AsyncData` — not on a null check — the data branch also runs for `AsyncData<T?>(null)`: a nullable `T` with a legitimate `null` value reaches `builder`, which must handle it.
 
 Set `maintainState: false` only when you explicitly want the loading or error UI to replace stale data — for example, on a screen where stale data would be misleading (a payment status, a security indicator).
 
@@ -46,11 +49,11 @@ The default `maintainState: true` keeps stale data visible while new data is loa
 
 The visual flow with `maintainState: true`:
 
-- **Initial load** (`Async.loading()`, no previous): `loadingBuilder` runs → spinner.
-- **First success** (`Async.data(user)`): `builder` runs → user profile.
-- **Refetch** (`Async.loading(previous: user)`): `builder` continues with previous user. No flicker.
-- **Refetch completes** (`Async.data(newUser)`): `builder` updates smoothly.
-- **Refetch error** (`Async.error(e, previous: user)`): `builder` continues with previous user. The error is silent in the UI — handle it through events if the user should be notified. See `chassis-handle-view-model-events` and `chassis-handle-errors`.
+- **Initial load** (`AsyncLoading()`, no previous): `loadingBuilder` runs → spinner.
+- **First success** (`AsyncData(user)`): `builder` runs → user profile.
+- **Refetch** (`AsyncLoading(previous: AsyncData(user))`): `builder` continues with the previous user. No flicker. The ViewModel produces this shape by passing `current:` to `run()` / `watch()` — see `chassis-create-view-model`.
+- **Refetch completes** (`AsyncData(newUser)`): `builder` updates smoothly.
+- **Refetch error** (`AsyncError(e, previous: AsyncData(user))`): `builder` continues with the previous user. The error is silent in the UI — handle it through events if the user should be notified. See `chassis-handle-view-model-events` and `chassis-handle-errors`.
 
 ## Rules
 
@@ -61,8 +64,10 @@ The visual flow with `maintainState: true`:
 - **PREFER** the default `maintainState: true` for lists, profiles, dashboards, and any screen where seeing the previous value during refresh is helpful.
 - **CONSIDER** `maintainState: false` when stale data is worse than no data — payment confirmation, security state, anything where correctness trumps continuity.
 - **CONSIDER** providing a branded `loadingBuilder` rather than the default `CircularProgressIndicator` — typically a `Skeleton`, a `Shimmer`, or a layout-preserving placeholder so the screen does not jump when the data arrives.
+- **PREFER** exhaustive pattern matching (`switch` on `AsyncData` / `AsyncLoading` / `AsyncError`) over flag checks (`isLoading`, `hasError`) on the rare occasions `build()` must branch on an `Async<T>` outside an `AsyncBuilder`. *The compiler enforces that every case is handled; flag chains silently miss one.*
 - **DON'T** unwrap `Async<T>` manually with `if (state.user.hasValue) ... else if (...) ...` in `build()`. *That is exactly the boilerplate `AsyncBuilder` exists to remove. The single exception is when the conditional drives layout outside the data area — even then, prefer composition over manual unwrapping.*
-- **DON'T** call `state.valueOrNull!` outside the `builder` callback. *The whole point of the sealed union is that the value is only safely accessible in `AsyncData`.*
+- **DON'T** force-unwrap with `state.valueOrNull!` — and never treat `valueOrNull == null` as "no data" when `T` is nullable. *Use pattern matching, or `requireValue` where the value is guaranteed to exist (it throws a descriptive `StateError` otherwise); `hasValue` is the null-safe presence check.*
+- **DON'T** collapse an error into a default with `valueOrNull ?? fallback`. *The same characters also spell "I forgot the error case" — the reader cannot tell a decision from an accident, and on primary content the screen renders failures as data. When degrading on error IS the design (optional content, error surfaced through another channel), say so through the explicit channel: an `errorBuilder` that returns the default (`// deliberate`). A business-case fallback ("document absent → empty value") belongs at the data layer, decided once in the repository — by the time a value is an `AsyncError`, it is not data anymore.*
 - **DON'T** model loading or error UI with nullable fields in state (`String? errorMessage`, `bool isLoading`). *That re-introduces every bug `Async<T>` was built to prevent.* See `chassis-create-view-model`.
 
 ## Workflow
@@ -87,12 +92,15 @@ class UserProfileScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final viewModel = context.watch<UserProfileViewModel>();
+    // select — rebuilds only when state.user changes
+    final asyncUser = context.select(
+      (UserProfileViewModel vm) => vm.state.user,
+    );
 
     return Scaffold(
       appBar: AppBar(title: const Text('User Profile')),
       body: AsyncBuilder<User>(
-        state: viewModel.state.user,
+        state: asyncUser,
         builder: (context, user) => Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
@@ -111,7 +119,8 @@ class UserProfileScreen extends StatelessWidget {
         loadingBuilder: (context) => const _ProfileSkeleton(),
         errorBuilder: (context, error) => _ProfileErrorView(
           error: error,
-          onRetry: () => viewModel.reload(),
+          // read inside a callback — no subscription
+          onRetry: () => context.read<UserProfileViewModel>().reload(),
         ),
       ),
     );
@@ -125,7 +134,7 @@ The `builder` only runs once data is available, so empty-state branching belongs
 
 ```dart
 AsyncBuilder<List<Todo>>(
-  state: viewModel.state.todos,
+  state: context.select((TodoViewModel vm) => vm.state.todos),
   builder: (context, todos) {
     if (todos.isEmpty) {
       return const Center(child: Text('No todos yet. Add one above.'));
@@ -146,10 +155,10 @@ AsyncBuilder<List<Todo>>(
 
 ```dart
 AsyncBuilder<List<Order>>(
-  state: viewModel.state.orders,
+  state: context.select((OrdersViewModel vm) => vm.state.orders),
   // maintainState: true, // default — keeps previous data visible during refresh
   builder: (context, orders) => RefreshIndicator(
-    onRefresh: viewModel.refresh,
+    onRefresh: context.read<OrdersViewModel>().refresh,
     child: ListView.builder(
       itemCount: orders.length,
       itemBuilder: (_, i) => OrderTile(order: orders[i]),
@@ -158,13 +167,15 @@ AsyncBuilder<List<Order>>(
 );
 ```
 
-While the refresh is in flight the state is `AsyncLoading(previous: orders)` — the builder continues with `previous` and the list does not flash empty.
+While the refresh is in flight the state is `AsyncLoading(previous: AsyncData(orders))` — the builder continues with the carried data and the list does not flash empty.
 
 ### Disabling `maintainState` when stale data is misleading
 
 ```dart
 AsyncBuilder<PaymentStatus>(
-  state: viewModel.state.paymentStatus,
+  state: context.select(
+    (CheckoutViewModel vm) => vm.state.paymentStatus,
+  ),
   maintainState: false, // never show stale payment status
   builder: (context, status) => PaymentStatusBadge(status: status),
   loadingBuilder: (_) => const PaymentStatusBadge.loading(),
@@ -178,7 +189,7 @@ The `errorBuilder` receives the raw `Object`. Translate it inside, and surface t
 
 ```dart
 AsyncBuilder<User>(
-  state: viewModel.state.user,
+  state: context.select((UserProfileViewModel vm) => vm.state.user),
   builder: (context, user) => UserCard(user: user),
   errorBuilder: (context, error) {
     final code = error is HasErrorCode ? error.code : 'unknown';
@@ -223,9 +234,10 @@ Widget build(BuildContext context) {
 // ✅ Use AsyncBuilder
 @override
 Widget build(BuildContext context) {
-  final viewModel = context.watch<UserProfileViewModel>();
   return AsyncBuilder<User>(
-    state: viewModel.state.user,
+    state: context.select(
+      (UserProfileViewModel vm) => vm.state.user,
+    ),
     builder: (_, user) => UserCard(user: user),
     errorBuilder: (_, error) => Text('Error: $error'),
   );
