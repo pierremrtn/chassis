@@ -14,7 +14,7 @@ Chassis is designed to handle thrown exceptions natively. The ViewModel's `run()
 
 ```dart
 // Repositories returning Results force Handlers to unwrap them manually
-abstract interface class IUserRepository {
+abstract interface class UserRepository {
   Future<Result<User, Exception>> getUser(String userId);
 }
 ```
@@ -23,7 +23,7 @@ abstract interface class IUserRepository {
 
 ```dart
 // Repositories throw exceptions; Chassis catches them automatically
-abstract interface class IUserRepository {
+abstract interface class UserRepository {
   Future<User> getUser(String userId);
 }
 ```
@@ -83,6 +83,10 @@ Future<User> getUser(String userId) async {
 
 The Application layer (Handlers) depends only on Repository interfaces, never on concrete implementations (see [Core Architecture](01_core_architecture.md)). Let the repository handle the mapping, and let the Handler pass the domain exception upward.
 
+### DON'T catch the Mediator's own wiring exceptions
+
+The Mediator throws `HandlerNotRegisteredException` when a message is dispatched with no registered handler, and `DuplicateHandlerException` when two handlers are registered for the same message type. Both extend the sealed `ChassisException` and are thrown identically in debug and release builds. They are programming errors — a wiring mistake to fix, never a runtime condition to recover from. Fix the registration (or annotate the handler with `@chassisHandler` and rebuild); don't catch.
+
 ---
 
 ## Deciding Where to Catch
@@ -104,15 +108,15 @@ When a handler can meaningfully react to an exception thrown by a repository or 
 ```dart
 // Lets a recoverable condition bubble up to the UI
 class WatchCartHandler implements WatchHandler<WatchCartQuery, ShoppingCart> {
-  final ICartRepository _cartRepository;
+  final CartRepository cartRepository;
 
-  WatchCartHandler(this._cartRepository);
+  WatchCartHandler({required this.cartRepository});
 
   @override
   Stream<ShoppingCart> watch(WatchCartQuery query) {
     // The repository throws CartNotFoundException for new users,
     // and the UI ends up showing an error screen instead of the empty cart.
-    return _cartRepository.watchCart(query.userId);
+    return cartRepository.watchCart(query.userId);
   }
 }
 ```
@@ -122,14 +126,14 @@ class WatchCartHandler implements WatchHandler<WatchCartQuery, ShoppingCart> {
 ```dart
 // Converts the expected "no cart yet" outcome into an empty state
 class WatchCartHandler implements WatchHandler<WatchCartQuery, ShoppingCart> {
-  final ICartRepository _cartRepository;
+  final CartRepository cartRepository;
 
-  WatchCartHandler(this._cartRepository);
+  WatchCartHandler({required this.cartRepository});
 
   @override
   Stream<ShoppingCart> watch(WatchCartQuery query) async* {
     try {
-      yield* _cartRepository.watchCart(query.userId);
+      yield* cartRepository.watchCart(query.userId);
     } on CartNotFoundException {
       yield ShoppingCart.empty(query.userId);
     }
@@ -237,7 +241,7 @@ class ItemNotFoundException implements Exception, HasErrorCode {
 
 ## Presentation & Global Safety
 
-Chassis exposes three channels a ViewModel can use to surface an error from `run()` or `watch()`: the operation's result can flow into `Async<T>` state via `onState`, the ViewModel can dispatch an event via `sendEvent` from an `onError` callback, or it can retain the last-good value on `Async<T>.previous` and flag a soft error. The right channel depends on one question — *after the error happens, is the current view still useful?* The two rules below capture the default answer for queries and commands; both are preferences, not laws, and the app's UX language sometimes demands inverting them.
+Chassis exposes three channels a ViewModel can use to surface an error from `run()` or `watch()`: the operation's result can flow into `Async<T>` state via `onState`, the ViewModel can dispatch an event via `sendEvent` from an `onError` callback, or it can retain the last-good value through the `previous` field carried by `AsyncLoading<T>` and `AsyncError<T>` and flag a soft error. The right channel depends on one question — *after the error happens, is the current view still useful?* The two rules below capture the default answer for queries and commands; both are preferences, not laws, and the app's UX language sometimes demands inverting them.
 
 ### PREFER routing query errors through Async state
 
@@ -248,7 +252,9 @@ Queries exist to produce the data a screen renders. When a query fails, there is
 ```dart
 void loadUser(String userId) {
   watch(
-    mediator.watchUser(userId: userId),
+    _mediator.watchUser(userId: userId),
+    key: #user,
+    current: state.user,
     onState: (asyncUser) => setState(state.copyWith(user: asyncUser)),
   );
 }
@@ -258,15 +264,15 @@ Invert this default when the screen was already displaying valid data and should
 
 ### PREFER routing command errors through events
 
-Commands are triggered by user intent on a screen that already has valid content. A failed save, a rejected payment, or a network error on "add to cart" should not replace the view — the user's form, list, or selection is still valid and they need to be able to fix something and retry. Dispatch the error as a one-time event from `onError` so `ViewModelProvider.withEvents` can surface a snackbar, toast, or dialog while the state stays intact.
+Commands are triggered by user intent on a screen that already has valid content. A failed save, a rejected payment, or a network error on "add to cart" should not replace the view — the user's form, list, or selection is still valid and they need to be able to fix something and retry. Dispatch the error as a one-time event from `onError` so `ViewModelProvider.withEventListener` can surface a snackbar, toast, or dialog while the state stays intact.
 
 **Good**
 
 ```dart
 void save(EditProfileForm form) {
   run(
-    mediator.updateProfile(form: form),
-    onData: (_) => sendEvent(ProfileSavedEvent()),
+    () => _mediator.updateProfile(form: form),
+    onSuccess: (_) => sendEvent(ProfileSavedEvent()),
     onError: (error) => sendEvent(ProfileSaveFailedEvent(error)),
   );
 }
@@ -310,7 +316,7 @@ When rendering errors using `AsyncBuilder.errorBuilder`, show the translated mes
 
 ```dart
 AsyncBuilder<User>(
-  state: viewModel.state.user,
+  state: context.select((UserViewModel vm) => vm.state.user),
   errorBuilder: (context, error) {
     final code = error is HasErrorCode ? error.code : 'unknown';
 
@@ -329,6 +335,22 @@ AsyncBuilder<User>(
 )
 ```
 
+### CONSIDER wiring `LoggingMiddleware` to trace every operation
+
+Chassis ships a `LoggingMiddleware` that records every dispatch — command, read, and watch — with its outcome, duration, and errors including stack traces. Each record renders the message's `params`, so a failing trace reads `UpdateProfileCommand{userId: u1} failed after 230ms: NetworkException` instead of a bare type name. Errors are always rethrown; logging never swallows failures. Route records to your own logger or breadcrumb trail by providing a custom `ChassisLogSink`.
+
+**Good**
+
+```dart
+final mediator = AppMediator(/* dependencies */)
+  ..addMiddleware(LoggingMiddleware());
+
+// Development: also trace dispatch starts and stream emissions
+mediator.addMiddleware(LoggingMiddleware(logStart: true, logStreamEvents: true));
+```
+
+Remember that `params` flows into these traces — override it on your messages for observability, and never include secrets in it.
+
 ### CONSIDER using a global Mediator middleware for crash reporting
 
 If a repository author forgets to map an infrastructure error, or an unexpected crash occurs, it should not go unnoticed. Implement a middleware to catch all unhandled exceptions at the Mediator level, forward them to your telemetry service (like Crashlytics) with the preserved stack trace, and then rethrow so the ViewModel still transitions to `AsyncError<T>`.
@@ -336,13 +358,13 @@ If a repository author forgets to map an infrastructure error, or an unexpected 
 **Good**
 
 ```dart
-class CrashReportingMiddleware implements MediatorMiddleware {
+class CrashReportingMiddleware extends MediatorMiddleware {
   CrashReportingMiddleware(this._reporter);
 
   final ICrashReporter _reporter;
 
   @override
-  Future<T> onRun<T>(Command<T> command, NextRun<Command<T>, T> next) async {
+  Future<R> onRun<C extends Command<R>, R>(C command, NextRun<C, R> next) async {
     try {
       return await next(command);
     } catch (error, stack) {
@@ -356,4 +378,4 @@ class CrashReportingMiddleware implements MediatorMiddleware {
 }
 ```
 
-The middleware is the last line of defence: it should never swallow errors, only observe them. Apply the same pattern to `onRead` and `onWatch` so every message type flows through crash reporting.
+The middleware is the last line of defence: it should never swallow errors, only observe them. Apply the same pattern to `onRead` and `onWatch` so every message type flows through crash reporting. Extending `MediatorMiddleware` (rather than implementing it) means the hooks you don't override keep their pass-through defaults.

@@ -16,7 +16,19 @@
 ///   final String email;
 /// }
 /// ```
-abstract base class Command<R> {}
+abstract base class Command<R> {
+  /// Parameters of this command, for logging and tracing purposes.
+  ///
+  /// Override to expose the command's fields. Used by [toString] and by
+  /// `LoggingMiddleware` so a trace reads `CreateUserCommand{name: John}`
+  /// instead of a bare type name.
+  ///
+  /// Never include secrets (passwords, tokens) in [params].
+  Map<String, Object?> get params => const {};
+
+  @override
+  String toString() => params.isEmpty ? '$runtimeType' : '$runtimeType$params';
+}
 
 /// A handler that executes commands of type [C] and returns results of type [R].
 ///
@@ -28,15 +40,12 @@ abstract base class Command<R> {}
 ///
 /// Example usage:
 /// ```dart
+/// @chassisHandler
 /// class CreateUserCommandHandler implements CommandHandler<CreateUserCommand, User> {
-///   final IUserRepository _repository;
-///   final IAuditLogger _auditLogger;
+///   CreateUserCommandHandler(this._repository, this._auditLogger);
 ///
-///   CreateUserCommandHandler({
-///     required IUserRepository repository,
-///     required IAuditLogger auditLogger,
-///   })  : _repository = repository,
-///         _auditLogger = auditLogger;
+///   final UserRepository _repository;
+///   final AuditLogger _auditLogger;
 ///
 ///   @override
 ///   Future<User> run(CreateUserCommand command) async {

@@ -28,7 +28,9 @@ The strategy has four layers, each with a clear responsibility:
 3. **ViewModel** — route query errors through `Async<T>.error` state, command errors through events.
 4. **Presentation** — translate the exception type into a localized message, surface a stable error code, optionally show the raw error in debug builds.
 
-A crash-reporting middleware sits at the Mediator level and observes everything that bubbles past handler-level recovery — see the last section.
+A crash-reporting middleware sits at the Mediator level and observes everything that bubbles past handler-level recovery — see the last section. The built-in `LoggingMiddleware` already traces every dispatch outcome (including errors with stack traces) — wire it by default at the composition root (`mediator.addMiddleware(LoggingMiddleware())`, see `chassis-bootstrap-app`).
+
+One family of exceptions is exempt from all of this: the Mediator's own `ChassisException` subtypes. `HandlerNotRegisteredException` (dispatch with no handler registered) and `DuplicateHandlerException` (two handlers for one message type, thrown identically in debug and release) are wiring mistakes, not runtime conditions — fix the registration (usually: annotate the handler and re-run `build_runner`), never catch them. See `chassis-register-handler-with-codegen`.
 
 ## The Four Layers of Error Handling
 
@@ -69,13 +71,13 @@ Two channels exist; the right one depends on a single question — *after the er
 Invert each default in the obvious cases:
 
 - A *command that replaces the view* (checkout submit, account creation) should flow through `onState` like a query — on catastrophic failure a full error view beats a snackbar dropped on a screen the user is leaving.
-- A *watch query that hiccups mid-stream* (lost socket, momentary outage) often should keep the last-good snapshot visible via `Async<T>.previous` rather than show an error screen — the soft-error pattern.
+- A *watch query that hiccups mid-stream* (lost socket, momentary outage) should keep the last-good snapshot visible — the soft-error pattern. The ViewModel's `watch()` produces this automatically: a stream error emits an `AsyncError` carrying the last known data as `previous`, and `AsyncBuilder`'s default `maintainState: true` keeps rendering it. Add an `onError` callback (additive — it never suppresses `onState`) to also notify the user through an event.
 
 ## Rules
 
 ### Architecture
 
-- **DO** use thrown exceptions, not `Result<T, E>` types. *Chassis catches exceptions natively; `Result` adds boilerplate and breaks the clean `Future<T>` signatures the generated Mediator extensions expect.*
+- **DO** use thrown exceptions, not `Result<T, E>` types. *Chassis catches exceptions natively; `Result` adds boilerplate and breaks the clean `Future<T>` signatures the generated mediator methods expose.*
 - **DO** map infrastructure exceptions to domain exceptions inside the **Repository implementation**, never in handlers. *Repositories are the anti-corruption layer; the Application layer must not import infrastructure error types.*
 - **DO** preserve the original stack trace when wrapping. Use `Error.throwWithStackTrace(mapped, stack)` from inside `on FirebaseException catch (e, stack) { ... }`.
 - **DON'T** catch infrastructure errors inside handlers. *That breaks the Dependency Rule and couples the Application layer to a specific provider.*
@@ -141,7 +143,7 @@ extension FirebaseErrorMapper<T> on Future<T> {
   }
 }
 
-class FirestoreUserRepository implements IUserRepository {
+class FirestoreUserRepository implements UserRepository {
   @override
   Future<User> getUser(String userId) {
     return firestore
@@ -184,10 +186,9 @@ class InsufficientInventoryException implements Exception, HasErrorCode {
 ```dart
 @chassisHandler
 class WatchCartQueryHandler implements WatchHandler<WatchCartQuery, ShoppingCart> {
-  WatchCartQueryHandler({required ICartRepository cartRepository})
-      : _cartRepository = cartRepository;
+  WatchCartQueryHandler({required this.cartRepository});
 
-  final ICartRepository _cartRepository;
+  final CartRepository cartRepository;
 
   /// Streams the user's cart. Returns an empty cart for new users.
   ///
@@ -196,7 +197,7 @@ class WatchCartQueryHandler implements WatchHandler<WatchCartQuery, ShoppingCart
   @override
   Stream<ShoppingCart> watch(WatchCartQuery query) async* {
     try {
-      yield* _cartRepository.watchCart(query.userId);
+      yield* cartRepository.watchCart(query.userId);
     } on CartNotFoundException {
       // Expected outcome for a new user — yield empty rather than error.
       yield ShoppingCart.empty(query.userId);
@@ -210,22 +211,21 @@ class WatchCartQueryHandler implements WatchHandler<WatchCartQuery, ShoppingCart
 
 ```dart
 @chassisHandler
-class CreateOrderCommandHandler
+class CreateOrderHandler
     implements CommandHandler<CreateOrderCommand, Order> {
-  CreateOrderCommandHandler({
-    required IOrderRepository orderRepository,
-    required IInventoryService inventoryService,
-  })  : _orderRepository = orderRepository,
-        _inventoryService = inventoryService;
+  CreateOrderHandler({
+    required this.orderRepository,
+    required this.inventoryService,
+  });
 
-  final IOrderRepository _orderRepository;
-  final IInventoryService _inventoryService;
+  final OrderRepository orderRepository;
+  final InventoryService inventoryService;
 
   /// Throws [InsufficientInventoryException] if any item is out of stock.
   @override
   Future<Order> run(CreateOrderCommand command) async {
     for (final item in command.items) {
-      final available = await _inventoryService.available(item.productId);
+      final available = await inventoryService.available(item.productId);
       if (available < item.quantity) {
         throw InsufficientInventoryException(
           productId: item.productId,
@@ -234,7 +234,7 @@ class CreateOrderCommandHandler
         );
       }
     }
-    return _orderRepository.create(/* ... */);
+    return orderRepository.create(/* ... */);
   }
 }
 ```
@@ -243,19 +243,24 @@ class CreateOrderCommandHandler
 
 ```dart
 class CheckoutViewModel extends ViewModel<CheckoutState, CheckoutEvent> {
-  CheckoutViewModel(super.mediator) : super(initial: CheckoutState.initial()) {
-    // Watch query — error flows into Async.error, AsyncBuilder.errorBuilder renders it.
+  CheckoutViewModel(this._mediator, {required String userId})
+      : super(CheckoutState.initial()) {
+    // Watch query — an error flows into AsyncError state (carrying the last
+    // good cart, if any); AsyncBuilder.errorBuilder renders the hard case.
     watch(
-      mediator.watchCart(userId: userId),
+      _mediator.watchCart(userId: userId),
+      key: #cart,
       onState: (asyncCart) => setState(state.copyWith(cart: asyncCart)),
     );
   }
 
+  final AppMediator _mediator;
+
   void submit() {
     // Command — keeps state intact, dispatches a one-shot event on failure.
     run(
-      mediator.createOrder(/* ... */),
-      onData: (order) => sendEvent(OrderConfirmedEvent(order.id)),
+      () => _mediator.createOrder(/* ... */),
+      onSuccess: (order) => sendEvent(OrderConfirmedEvent(order.id)),
       onError: (error) => sendEvent(OrderFailedEvent(error)),
     );
   }
@@ -307,14 +312,16 @@ AsyncBuilder<ShoppingCart>(
 
 ### Crash-reporting middleware
 
+`MediatorMiddleware` is a base class with pass-through defaults — extend it and override only the hooks you need.
+
 ```dart
-class CrashReportingMiddleware implements MediatorMiddleware {
+class CrashReportingMiddleware extends MediatorMiddleware {
   CrashReportingMiddleware(this._reporter);
 
-  final ICrashReporter _reporter;
+  final CrashReporter _reporter;
 
   @override
-  Future<T> onRun<T>(Command<T> command, NextRun<Command<T>, T> next) async {
+  Future<R> onRun<C extends Command<R>, R>(C command, NextRun<C, R> next) async {
     try {
       return await next(command);
     } catch (error, stack) {
@@ -324,7 +331,7 @@ class CrashReportingMiddleware implements MediatorMiddleware {
   }
 
   @override
-  Future<T> onRead<T>(ReadQuery<T> query, NextRead<ReadQuery<T>, T> next) async {
+  Future<R> onRead<Q extends ReadQuery<R>, R>(Q query, NextRead<Q, R> next) async {
     try {
       return await next(query);
     } catch (error, stack) {
@@ -334,25 +341,33 @@ class CrashReportingMiddleware implements MediatorMiddleware {
   }
 
   @override
-  Stream<T> onWatch<T>(WatchQuery<T> query, NextWatch<WatchQuery<T>, T> next) {
-    return next(query).handleError((error, stack) {
-      _reporter.report(error, stack as StackTrace);
-      throw error;
+  Stream<R> onWatch<Q extends WatchQuery<R>, R>(Q query, NextWatch<Q, R> next) {
+    return next(query).handleError((Object error, StackTrace stack) {
+      _reporter.report(error, stack);
+      throw error; // rethrow into the stream
     });
   }
 }
 ```
 
-The middleware never swallows — it observes and rethrows so the ViewModel still transitions to `Async.error` and downstream listeners still receive the failure.
+Install it at the composition root, after `LoggingMiddleware`:
+
+```dart
+mediator = AppMediator(/* ... */)
+  ..addMiddleware(LoggingMiddleware())
+  ..addMiddleware(CrashReportingMiddleware(crashReporter));
+```
+
+Every generated mediator method dispatches through `run`/`read`/`watch`, so middlewares observe the typed calls too. The middleware never swallows — it observes and rethrows so the ViewModel still transitions to `AsyncError` and downstream listeners still receive the failure.
 
 ### Anti-pattern: catch-and-swallow
 
 ```dart
 // ❌ Hides failures from the crash reporter and the user.
 @override
-Future<User> run(GetUserCommand command) async {
+Future<User> read(GetUserQuery query) async {
   try {
-    return await _repository.getUser(command.id);
+    return await _repository.getUser(query.id);
   } catch (_) {
     return User.unknown(); // silent failure
   }
@@ -362,9 +377,9 @@ Future<User> run(GetUserCommand command) async {
 ```dart
 // ✅ Catch only when there is a meaningful response; let unexpected errors bubble.
 @override
-Future<User> run(GetUserCommand command) async {
+Future<User> read(GetUserQuery query) async {
   try {
-    return await _repository.getUser(command.id);
+    return await _repository.getUser(query.id);
   } on UserNotFoundException {
     return User.guest(); // expected business outcome
   }
@@ -375,15 +390,16 @@ Future<User> run(GetUserCommand command) async {
 ### Anti-pattern: Result type
 
 ```dart
-// ❌ Forces every handler and ViewModel to unwrap manually; breaks Mediator extensions.
-abstract interface class IUserRepository {
+// ❌ Forces every handler and ViewModel to unwrap manually; breaks the
+// clean Future<T> signatures the generated mediator methods expose.
+abstract interface class UserRepository {
   Future<Result<User, Exception>> getUser(String userId);
 }
 ```
 
 ```dart
 // ✅ Throw exceptions; Chassis catches them.
-abstract interface class IUserRepository {
+abstract interface class UserRepository {
   Future<User> getUser(String userId);
 }
 ```

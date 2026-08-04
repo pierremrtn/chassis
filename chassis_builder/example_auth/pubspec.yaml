@@ -1,0 +1,18 @@
+name: example_auth
+description: Example chassis module package, composed into the example app.
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: ^3.6.2
+
+resolution: workspace
+
+dependencies:
+  chassis:
+    path: ../../chassis
+
+dev_dependencies:
+  chassis_builder:
+    path: ../
+  build_runner: ^2.15.0

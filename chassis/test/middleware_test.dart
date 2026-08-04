@@ -39,7 +39,8 @@ class RecordingMiddleware extends MediatorMiddleware {
   final List<String> log;
 
   @override
-  Future<R> onRun<C extends Command<R>, R>(C command, NextRun<C, R> next) async {
+  Future<R> onRun<C extends Command<R>, R>(
+      C command, NextRun<C, R> next) async {
     log.add('$name:before');
     final result = await next(command);
     log.add('$name:after');
@@ -47,7 +48,8 @@ class RecordingMiddleware extends MediatorMiddleware {
   }
 
   @override
-  Future<R> onRead<Q extends ReadQuery<R>, R>(Q query, NextRead<Q, R> next) async {
+  Future<R> onRead<Q extends ReadQuery<R>, R>(
+      Q query, NextRead<Q, R> next) async {
     log.add('$name:before');
     final result = await next(query);
     log.add('$name:after');
@@ -132,7 +134,8 @@ void main() {
 
 class _UppercaseMiddleware extends MediatorMiddleware {
   @override
-  Future<R> onRead<Q extends ReadQuery<R>, R>(Q query, NextRead<Q, R> next) async {
+  Future<R> onRead<Q extends ReadQuery<R>, R>(
+      Q query, NextRead<Q, R> next) async {
     final result = await next(query);
     if (result is String) return result.toUpperCase() as R;
     return result;

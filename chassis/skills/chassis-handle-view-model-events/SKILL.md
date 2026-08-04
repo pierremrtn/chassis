@@ -1,13 +1,13 @@
 ---
 name: chassis-handle-view-model-events
-description: Wire one-time UI side effects (snackbars, navigation, dialogs, vibration) emitted by a Chassis ViewModel as sealed Event variants, using `ViewModelProvider.withEvents` at the provision site or `ConsumerMixin` in a descendant widget. Use when adding a `sendEvent(...)` call in a ViewModel and the corresponding listener that turns events into UI side effects. Do NOT model these as nullable state fields (`String? snackbarMessage`) — that is the anti-pattern this skill exists to prevent.
+description: Wire one-time UI side effects (snackbars, navigation, dialogs, vibration) emitted by a Chassis ViewModel as sealed Event variants, using `ViewModelProvider.withEventListener` at the provision site, the `EventListener` widget in a descendant subtree, or `EventListenerMixin` in a descendant `State`. Use when adding a `sendEvent(...)` call in a ViewModel and the corresponding listener that turns events into UI side effects. Do NOT model these as nullable state fields (`String? snackbarMessage`) — that is the anti-pattern this skill exists to prevent.
 ---
 # Handling One-Time Events from a ViewModel
 
 ## Contents
 - [Core Concepts](#core-concepts)
 - [State vs Events: The Distinction](#state-vs-events-the-distinction)
-- [Two Listener Strategies: `withEvents` vs `ConsumerMixin`](#two-listener-strategies-withevents-vs-consumermixin)
+- [Three Listener Strategies](#three-listener-strategies)
 - [Rules](#rules)
 - [Workflow](#workflow)
 - [Examples](#examples)
@@ -16,12 +16,15 @@ description: Wire one-time UI side effects (snackbars, navigation, dialogs, vibr
 
 A Chassis ViewModel exposes two channels: a `state` (observable, persistent) and an `events` stream (one-shot, ephemeral). Events fire once per emission, regardless of widget rebuilds, and feed into UI side effects that should not replay: showing a snackbar, navigating to another screen, popping a dialog, triggering haptic feedback.
 
-Events are produced inside the ViewModel with `sendEvent(<EventVariant>)`. Listeners consume them through one of two strategies:
+Events are produced inside the ViewModel with `sendEvent(<EventVariant>)`. Listeners consume them through one of three strategies:
 
-- **`ViewModelProvider.withEvents<TViewModel, TEvent>`** at the provision site — co-locates the listener with where the ViewModel is created.
-- **`ConsumerMixin`** in a descendant `State` — listens to a ViewModel provided by an ancestor.
+- **`ViewModelProvider.withEventListener<TViewModel, TEvent>`** at the provision site — co-locates the listener with where the ViewModel is created. The practical default.
+- **`EventListener<TViewModel, TEvent>`** — a widget wrapping a descendant subtree; the event-side counterpart of `AsyncBuilder`.
+- **`EventListenerMixin`** in a descendant `State` — for widgets that are already stateful and would rather not wrap their tree.
 
-Both subscribe to the same `events` stream and run cleanup automatically.
+All three subscribe to the same `events` stream and run cleanup automatically.
+
+The stream has deliberate buffering semantics: events sent with `sendEvent(...)` **before the first subscriber** are buffered (bounded) and delivered to that first subscriber, so events emitted during ViewModel construction are not lost. After the first subscription, regular broadcast semantics apply — events emitted while nobody listens are dropped.
 
 ## State vs Events: The Distinction
 
@@ -35,24 +38,33 @@ The decision is mechanical:
 - *Should this still be visible if the screen rebuilds for an unrelated reason?* → State.
 - *Does this fire once, trigger a side effect, and then become irrelevant?* → Event.
 
-## Two Listener Strategies: `withEvents` vs `ConsumerMixin`
+## Three Listener Strategies
 
-Both strategies are correct; they apply at different points in the widget tree.
+All three strategies are correct; they apply at different points in the widget tree.
 
-**`ViewModelProvider.withEvents`** is the default. It creates the ViewModel and attaches the listener in one place, eagerly (so events emitted during construction are not missed). The `onEvent` callback receives the provider's own `BuildContext` (which sits *above* the ViewModel in the tree), the ViewModel instance, and the event. `ScaffoldMessenger.of(context)` and `Navigator.of(context)` work from this context; `context.read<TViewModel>()` does not — use the `viewModel` callback argument when you need the VM.
+**`ViewModelProvider.withEventListener`** is the practical default. It creates the ViewModel and attaches the listener in one place, eagerly — combined with the pre-subscription buffer, events emitted during construction reach the listener. The `onEvent` callback receives the provider's own `BuildContext` (which sits *above* the ViewModel in the tree), the ViewModel instance, and the event. `ScaffoldMessenger.of(context)` and `Navigator.of(context)` work from this context; `context.read<TViewModel>()` does not — use the `viewModel` callback argument when you need the VM.
 
 ```dart
-ViewModelProvider.withEvents<CheckoutViewModel, CheckoutEvent>(
+ViewModelProvider.withEventListener<CheckoutViewModel, CheckoutEvent>(
   create: (_) => CheckoutViewModel(mediator),
   onEvent: (context, viewModel, event) { /* ... */ },
   child: const CheckoutScreen(),
 );
 ```
 
-**`ConsumerMixin`** is the right tool when a widget deep in the subtree needs to listen to a ViewModel provided by an ancestor — for example, a sticky footer that reacts to events emitted by a ViewModel above the screen. The mixin attaches in `initState` and disposes the subscription in `dispose`. It throws `StateError` if a listener for the same ViewModel type is registered twice in the same `State`.
+**`EventListener`** is the declarative option for a descendant: a widget that wraps a subtree and invokes its callback for each event of the ViewModel provided above — the event-side counterpart of `AsyncBuilder`. Its callback context sits *below* the provider, so `context.read<TViewModel>()` works there. It resubscribes automatically if the provider swaps the ViewModel instance.
 
 ```dart
-class _CartFooterState extends State<CartFooter> with ConsumerMixin {
+EventListener<CheckoutViewModel, CheckoutEvent>(
+  onEvent: (context, event) { /* ... */ },
+  child: const CartFooter(),
+);
+```
+
+**`EventListenerMixin`** serves widgets that are already `StatefulWidget`s and would rather not wrap their tree — for example, a listener that needs `State` access (controllers, animation tickers, local fields). The mixin attaches in `initState` and disposes the subscription in `dispose`. It throws `StateError` if a listener for the same ViewModel type is registered twice in the same `State`.
+
+```dart
+class _CartFooterState extends State<CartFooter> with EventListenerMixin {
   @override
   void initState() {
     super.initState();
@@ -61,35 +73,36 @@ class _CartFooterState extends State<CartFooter> with ConsumerMixin {
 }
 ```
 
-Use `withEvents` whenever the listener can live at the provision site. Reach for `ConsumerMixin` only when the listener must be separated from the provider by intermediate widgets, or when the listener needs `State` access (controllers, animation tickers, local fields).
+Use `withEventListener` whenever the listener can live at the provision site. Reach for `EventListener` when the listener must be separated from the provider by intermediate widgets, and for `EventListenerMixin` when that listener additionally needs `State` access.
 
 ## Rules
 
 - **DO** define events as a `sealed class <Feature>Event` with one variant per kind of one-shot occurrence. *Sealed unions enable exhaustive `switch` at the listener and carry payloads via pattern destructuring.*
 - **DO** emit events from inside the ViewModel using `sendEvent(<EventVariant>)`.
-- **DO** prefer `ViewModelProvider.withEvents<T, E>` for the listener when the provision site is also the right place to handle the side effect. *It co-locates creation and consumption, runs eagerly so construction-time events are not missed, and disposes automatically.*
-- **DO** use `ConsumerMixin` when a descendant widget needs to react to an ancestor-provided ViewModel's events, or when the listener needs access to local `State` fields (controllers, focus nodes, scroll positions).
+- **DO** prefer `ViewModelProvider.withEventListener<T, E>` for the listener when the provision site is also the right place to handle the side effect. *It co-locates creation and consumption, runs eagerly so construction-time events are not missed, and disposes automatically.*
+- **DO** use the `EventListener` widget when a descendant subtree needs to react to an ancestor-provided ViewModel's events, and `EventListenerMixin` when that listener additionally needs access to local `State` fields (controllers, focus nodes, scroll positions).
 - **DO** pattern-match on the sealed event type with a `switch` and destructure payloads (`case PaymentSuccessEvent(:final orderId): ...`). *The compiler enforces exhaustive handling.*
 - **DO** route command failures through events when the screen still has valid content (`onError: (e) => sendEvent(<FailedEvent>(e))`). *A failed save should not blow away the form.* See `chassis-handle-errors`.
 - **DON'T** model one-time occurrences as nullable state fields (`String? snackbarMessage`, `String? navigationRoute`, `bool showDialog`). *Rebuilds replay them, manual cleanup is required, the compiler cannot enforce exhaustiveness.*
-- **DON'T** call `context.read<TViewModel>()` inside the `withEvents` `onEvent` callback. *The provider's context sits above the VM; use the `viewModel` argument the callback already provides.*
-- **DON'T** register two `ConsumerMixin.onEvent<T, E>(...)` calls for the same ViewModel type in the same `State`. *The mixin throws `StateError` — split into a parent/child or merge the handlers.*
-- **DON'T** subscribe to `viewModel.events` manually with `listen(...)` and a `StreamSubscription`. *The two listener strategies above own subscription lifecycle; manual subscriptions risk leaks if a widget unmounts before cancellation.*
+- **DON'T** call `context.read<TViewModel>()` inside the `withEventListener` `onEvent` callback. *The provider's context sits above the VM; use the `viewModel` argument the callback already provides.*
+- **DON'T** register two `EventListenerMixin.onEvent<T, E>(...)` calls for the same ViewModel type in the same `State`. *The mixin throws `StateError` — split into a parent/child or merge the handlers.*
+- **DON'T** subscribe to `viewModel.events` manually with `listen(...)` and a `StreamSubscription`. *The three listener strategies above own subscription lifecycle; manual subscriptions risk leaks if a widget unmounts before cancellation.*
 
 ## Workflow
 
 - [ ] **Step 1 — Decide if the change is an event or state.** If the answer to "should this still be visible after a rebuild?" is no, it is an event.
 - [ ] **Step 2 — Add a variant to the sealed event class** with whatever payload the listener will need. See `chassis-create-view-model` for the event class shape.
-- [ ] **Step 3 — Emit from the ViewModel.** `sendEvent(<EventVariant>(payload))` from inside `run`'s `onData` / `onError`, or anywhere a one-shot occurrence is observed.
+- [ ] **Step 3 — Emit from the ViewModel.** `sendEvent(<EventVariant>(payload))` from inside `run`'s `onSuccess` / `onError`, or anywhere a one-shot occurrence is observed.
 - [ ] **Step 4 — Pick the listener strategy.**
-  - Listener at the provision site → `ViewModelProvider.withEvents<TVM, TEvent>` with an `onEvent` callback.
-  - Listener inside a descendant widget that does not own the provision → `class _State extends State<...> with ConsumerMixin` and `onEvent<TVM, TEvent>((event) { ... })` in `initState`.
+  - Listener at the provision site → `ViewModelProvider.withEventListener<TVM, TEvent>` with an `onEvent` callback.
+  - Listener wrapping a descendant subtree → `EventListener<TVM, TEvent>(onEvent: ..., child: ...)`.
+  - Listener inside a descendant `State` that needs local fields → `class _State extends State<...> with EventListenerMixin` and `onEvent<TVM, TEvent>((event) { ... })` in `initState`.
 - [ ] **Step 5 — Pattern-match on the sealed event** in the callback. Destructure payloads with `case <Variant>(:final field): ...`.
 - [ ] **Step 6 — Drive the side effect** from the matched case: `ScaffoldMessenger.of(context).showSnackBar(...)`, `Navigator.of(context).push(...)`, `showDialog(...)`, `HapticFeedback.lightImpact()`.
 
 ## Examples
 
-### `withEvents` at the provision site
+### `withEventListener` at the provision site
 
 ```dart
 import 'package:chassis_flutter/chassis_flutter.dart';
@@ -100,7 +113,7 @@ class CheckoutPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ViewModelProvider.withEvents<CheckoutViewModel, CheckoutEvent>(
+    return ViewModelProvider.withEventListener<CheckoutViewModel, CheckoutEvent>(
       create: (_) => CheckoutViewModel(mediator),
       onEvent: (context, viewModel, event) {
         switch (event) {
@@ -139,7 +152,24 @@ class CheckoutPage extends StatelessWidget {
 
 The `viewModel` callback argument is the right way to call back into the VM — `context.read<CheckoutViewModel>()` would not find the VM since the context sits above it.
 
-### `ConsumerMixin` in a descendant widget
+### `EventListener` around a descendant subtree
+
+```dart
+EventListener<CheckoutViewModel, CheckoutEvent>(
+  onEvent: (context, event) {
+    if (event case PaymentSuccessEvent(:final orderId)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Order #$orderId confirmed')),
+      );
+    }
+  },
+  child: const CartFooter(),
+);
+```
+
+The listener wraps only the subtree that cares about the events; its callback context sits *below* the provider, so `context.read<CheckoutViewModel>()` works here.
+
+### `EventListenerMixin` in a descendant widget
 
 ```dart
 import 'package:chassis_flutter/chassis_flutter.dart';
@@ -152,7 +182,7 @@ class CartFooter extends StatefulWidget {
   State<CartFooter> createState() => _CartFooterState();
 }
 
-class _CartFooterState extends State<CartFooter> with ConsumerMixin {
+class _CartFooterState extends State<CartFooter> with EventListenerMixin {
   @override
   void initState() {
     super.initState();
@@ -165,10 +195,12 @@ class _CartFooterState extends State<CartFooter> with ConsumerMixin {
 
   @override
   Widget build(BuildContext context) {
-    final viewModel = context.watch<CheckoutViewModel>();
+    final itemCount = context.select(
+      (CheckoutViewModel vm) => vm.state.cart.valueOrNull?.length ?? 0,
+    );
     return Padding(
       padding: const EdgeInsets.all(16),
-      child: Text('Items: ${viewModel.state.cart.valueOrNull?.length ?? 0}'),
+      child: Text('Items: $itemCount'),
     );
   }
 }
@@ -180,13 +212,15 @@ The `CheckoutViewModel` is provided higher up the tree; the footer reads its eve
 
 ```dart
 class CheckoutViewModel extends ViewModel<CheckoutState, CheckoutEvent> {
-  CheckoutViewModel(super.mediator) : super(initial: CheckoutState.initial());
+  CheckoutViewModel(this._mediator) : super(CheckoutState.initial());
+
+  final AppMediator _mediator;
 
   void payAndSubmit() {
     setState(state.copyWith(isProcessingPayment: true));
     run(
-      mediator.submitOrder(/* ... */),
-      onData: (order) {
+      () => _mediator.submitOrder(/* ... */),
+      onSuccess: (order) {
         setState(state.copyWith(isProcessingPayment: false));
         sendEvent(PaymentSuccessEvent(order.id));
         sendEvent(NavigateToOrderConfirmationEvent(order.id));
@@ -242,7 +276,7 @@ void onPaymentSuccess(String orderId) {
 }
 
 // At provision site:
-ViewModelProvider.withEvents<CheckoutViewModel, CheckoutEvent>(
+ViewModelProvider.withEventListener<CheckoutViewModel, CheckoutEvent>(
   create: (_) => CheckoutViewModel(mediator),
   onEvent: (context, _, event) {
     if (event case PaymentSuccessEvent(:final orderId)) {

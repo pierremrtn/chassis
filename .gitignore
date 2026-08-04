@@ -1,0 +1,16 @@
+# Dart / Flutter
+.dart_tool/
+build/
+*.iml
+
+# Workspace: only the root pubspec.lock is committed.
+/chassis/pubspec.lock
+/chassis_flutter/pubspec.lock
+/chassis_builder/pubspec.lock
+/chassis_builder/example/pubspec.lock
+
+# Generated docs site
+site/
+
+# Locally installed agent skills (see skills-lock.json)
+.agents/

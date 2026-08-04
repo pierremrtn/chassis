@@ -232,6 +232,16 @@ GetProjectByIdQueryHandler
 
 ---
 
+### AVOID abbreviations in identifiers
+
+`formatQty`, `calcBmr`, `usrRepo` make every reader expand them mentally;
+`formatQuantity`, `calculateBasalMetabolicRate`, `userRepository` cost a few
+characters once, at writing time. Keep only universally established short
+forms (`id`, `url`, `api`, `min`/`max`) and domain units that *are* the word
+(`kcal`, `kg`, `ml`).
+
+---
+
 ## Handlers
 
 ### DO keep Handlers stateless
@@ -341,6 +351,15 @@ lib/
 ### DO create one file per Command/Query-Handler pair
 
 Splitting each pair into its own file enforces the single-responsibility principle at the file level and makes the project's capabilities scannable from the directory listing alone. When a new developer opens the `application/orders/` folder, they immediately see every operation the order domain supports.
+
+---
+
+### DO use package imports everywhere under `lib/`
+
+Relative imports that climb the tree (`import '../../../../app/composition_root.dart'`)
+hide the dependency direction, break on file moves, and read as noise. Use the
+canonical `package:` form for every import under `lib/`; the standard
+`always_use_package_imports` lint enforces it.
 
 ---
 

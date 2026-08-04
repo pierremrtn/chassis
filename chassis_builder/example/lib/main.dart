@@ -1,81 +1,57 @@
+/// Composition root: the generator emits `AppMediator` (in
+/// `main.chassis.dart`) implementing `AuthMediator` plus the app's own
+/// handlers. If a handler is missing, this file no longer compiles.
+@ChassisApp(modules: [AuthModule], mediatorName: 'AppMediator')
+library;
+
 import 'package:chassis/chassis.dart';
-import 'package:example/user_repository.dart';
-import 'my_mediator_impl.dart';
-import 'dart:ui';
+import 'package:example_auth/example_auth.chassis.dart';
+import 'package:example_auth/example_auth.dart';
 
-// Use strict dependency injection
-class AuthRepo {}
+import 'main.chassis.dart';
 
-class Logger {}
+// --- App-own logic ---
 
-void main() async {
-  final authRepo = AuthRepo();
-  final logger = Logger();
-  final userRepository = UserRepository();
-
-  // Instantiate the generated concrete class
-  final mediator = MyMediator(
-    authRepo: authRepo,
-    logger: logger,
-    userRepository: userRepository,
-  );
-
-  await mediator.login('test_user');
-  final profile = await mediator.getProfile('user_id');
-  print('Profile: $profile');
-
-  final config = await mediator.getAppConfig();
-  print('Config: $config');
+class ConfigStore {
+  String get flavor => 'production';
 }
 
-@chassisHandler
-class LoginHandler implements CommandHandler<LoginCommand, void> {
-  final AuthRepo authRepo;
-  final Logger logger;
-
-  LoginHandler(this.authRepo, this.logger);
-
-  @override
-  Future<void> run(LoginCommand command) async {
-    print('Login ${command.username}');
-  }
-}
-
-final class LoginCommand extends Command<void> {
-  final String username;
-  final Color test;
-  LoginCommand(this.username, {this.test = const Color(0x000000)});
-}
-
-@chassisHandler
-class GetProfileHandler implements ReadHandler<GetProfileQuery, String> {
-  final AuthRepo authRepo;
-
-  GetProfileHandler(this.authRepo);
-
-  @override
-  Future<String> read(GetProfileQuery query) async {
-    return 'User Profile';
-  }
-}
-
-final class GetProfileQuery extends ReadQuery<String> {
-  final String userId;
-  GetProfileQuery(this.userId);
-}
-
-final class GetAppConfigQuery extends ReadQuery<String> {
-  GetAppConfigQuery();
-}
+final class GetAppConfigQuery extends ReadQuery<String> {}
 
 @chassisHandler
 class GetAppConfigHandler implements ReadHandler<GetAppConfigQuery, String> {
-  final AuthRepo authRepo;
+  GetAppConfigHandler({required this.store});
 
-  GetAppConfigHandler(this.authRepo);
+  final ConfigStore store;
 
   @override
-  Future<String> read(GetAppConfigQuery query) async {
-    return 'App Config';
+  Future<String> read(GetAppConfigQuery query) async => store.flavor;
+}
+
+// --- Infrastructure ---
+
+class FakeAuthRepository implements AuthRepository {
+  @override
+  Future<void> login(String username, String password) async {
+    print('logged in as $username');
   }
+
+  @override
+  Future<String> profileOf(String userId) async => 'profile of $userId';
+}
+
+void main() async {
+  final AppMediator mediator = AppMediator(
+    authRepository: FakeAuthRepository(),
+    configStore: ConfigStore(),
+  )..addMiddleware(LoggingMiddleware());
+
+  // Typed dispatch through the generated methods (middlewares apply).
+  await mediator.login('ada', 'secret');
+  print(await mediator.getProfile(userId: '42'));
+  print(await mediator.getAppConfig());
+
+  // The module interface alone is enough for shared code:
+  final AuthMediator auth = mediator;
+  await auth.login('grace', 'hopper');
 }

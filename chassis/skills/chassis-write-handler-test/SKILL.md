@@ -27,7 +27,7 @@ The same shape applies to all three handler types:
 
 ## Why Direct Instantiation, Not Mediator
 
-Some tests want to verify *wiring* — that a `CreateOrderCommand` dispatched on the Mediator actually reaches `CreateOrderCommandHandler`. That is an integration test, and it is useful, but it is not what this skill is about.
+Some tests want to verify *wiring* — that a `CreateOrderCommand` dispatched on the Mediator actually reaches `CreateOrderHandler`. That is an integration test, and it is useful, but it is not what this skill is about.
 
 For handler-level unit tests, **construct the handler directly** with mock repositories. Going through `mediator.run(...)` adds setup (registration, type resolution, middleware) that is irrelevant to the business logic you are testing, and any failure in that setup will look like a test failure in the wrong place. Direct instantiation isolates the unit under test.
 
@@ -46,7 +46,7 @@ Mocks are declared as `class Mock<T> extends Mock implements <T> {}`, then stubb
 ## Rules
 
 - **DO** instantiate the handler directly in `setUp(...)` with mock repositories. *No `Mediator`, no `MaterialApp`, no `WidgetsFlutterBinding` — that is the point of the handler abstraction.*
-- **DO** mock against repository **interfaces** (`IUserRepository`, `IOrderRepository`), never concrete implementations. *Interfaces are the contract the handler depends on; concrete classes drag in infrastructure that should not exist in unit tests.*
+- **DO** mock against repository **interfaces** (`UserRepository`, `OrderRepository`), never concrete implementations. *Interfaces are the contract the handler depends on; concrete classes drag in infrastructure that should not exist in unit tests.*
 - **DO** put each test file next to nothing — group them under `test/<feature>/<handler_name>_test.dart` mirroring `lib/`'s structure.
 - **DO** organize tests in `setUp` (build the mocks and the handler), one `test(...)` per logical branch (happy path, validation failure, recovery from a domain exception, propagation of an unexpected failure).
 - **DO** verify both that the right repository methods were called (`verify(() => mock.create(...)).called(1)`) **and** that the wrong ones were not (`verifyNever(() => mock.charge(...))`). *The latter catches bugs where validation passes but the handler still calls payment.*
@@ -61,8 +61,8 @@ Mocks are declared as `class Mock<T> extends Mock implements <T> {}`, then stubb
 ## Workflow
 
 - [ ] **Step 1 — Place the file** at `test/<feature>/<handler_name>_test.dart`, mirroring the source path.
-- [ ] **Step 2 — Declare mocks** for every repository / service the handler injects: `class MockOrderRepository extends Mock implements IOrderRepository {}`.
-- [ ] **Step 3 — Set up** in `setUp(...)`. Construct each mock, then construct the handler with the mocks as named arguments.
+- [ ] **Step 2 — Declare mocks** for every repository / service the handler injects: `class MockOrderRepository extends Mock implements OrderRepository {}`.
+- [ ] **Step 3 — Set up** in `setUp(...)`. Construct each mock, then construct the handler with the mocks — through the same unnamed constructor `chassis_builder` calls; with named dependency parameters, each mock is passed by name. See `chassis-register-handler-with-codegen`.
 - [ ] **Step 4 — Cover the happy path** in the first test. Stub each mock method with `when(...).thenAnswer(...)`, dispatch the command / query, assert on the return value, verify the right methods were called.
 - [ ] **Step 5 — Cover the failure paths.** One test per business rule failure (`InsufficientInventoryException`), one per recoverable domain exception the handler converts (`CartNotFoundException` → empty cart), one per propagated unexpected failure if the assertion is meaningful.
 - [ ] **Step 6 — For stream handlers**, use `emitsInOrder` with the expected sequence including `emitsDone` if the stream is finite.
@@ -81,16 +81,16 @@ import 'package:my_app/application/orders/create_order_command.dart';
 import 'package:my_app/domain/orders/order.dart';
 import 'package:my_app/domain/orders/order_item.dart';
 import 'package:my_app/domain/orders/order_exceptions.dart';
-import 'package:my_app/domain/orders/i_order_repository.dart';
-import 'package:my_app/domain/payments/i_payment_gateway.dart';
-import 'package:my_app/domain/inventory/i_inventory_service.dart';
+import 'package:my_app/domain/orders/order_repository.dart';
+import 'package:my_app/domain/payments/payment_gateway.dart';
+import 'package:my_app/domain/inventory/inventory_service.dart';
 
-class MockOrderRepository extends Mock implements IOrderRepository {}
-class MockPaymentGateway extends Mock implements IPaymentGateway {}
-class MockInventoryService extends Mock implements IInventoryService {}
+class MockOrderRepository extends Mock implements OrderRepository {}
+class MockPaymentGateway extends Mock implements PaymentGateway {}
+class MockInventoryService extends Mock implements InventoryService {}
 
 void main() {
-  late CreateOrderCommandHandler handler;
+  late CreateOrderHandler handler;
   late MockOrderRepository orderRepo;
   late MockPaymentGateway paymentGateway;
   late MockInventoryService inventory;
@@ -105,7 +105,7 @@ void main() {
     paymentGateway = MockPaymentGateway();
     inventory = MockInventoryService();
 
-    handler = CreateOrderCommandHandler(
+    handler = CreateOrderHandler(
       orderRepository: orderRepo,
       paymentGateway: paymentGateway,
       inventoryService: inventory,
@@ -181,10 +181,10 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:my_app/application/cart/watch_cart_query.dart';
 import 'package:my_app/domain/cart/cart_exceptions.dart';
-import 'package:my_app/domain/cart/i_cart_repository.dart';
+import 'package:my_app/domain/cart/cart_repository.dart';
 import 'package:my_app/domain/cart/shopping_cart.dart';
 
-class MockCartRepository extends Mock implements ICartRepository {}
+class MockCartRepository extends Mock implements CartRepository {}
 
 void main() {
   late WatchCartQueryHandler handler;
@@ -243,9 +243,9 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:my_app/application/users/get_user_query.dart';
 import 'package:my_app/domain/users/user.dart';
-import 'package:my_app/domain/users/i_user_repository.dart';
+import 'package:my_app/domain/users/user_repository.dart';
 
-class MockUserRepository extends Mock implements IUserRepository {}
+class MockUserRepository extends Mock implements UserRepository {}
 
 void main() {
   late GetUserQueryHandler handler;
@@ -270,7 +270,7 @@ void main() {
 
 ### Optional: Mediator integration test
 
-If you want to verify that `CreateOrderCommand` actually routes to `CreateOrderCommandHandler` through the Mediator — including any registered middleware — write a separate test. This is *not* a handler unit test and belongs under `test/integration/`.
+If you want to verify that `CreateOrderCommand` actually routes to `CreateOrderHandler` through the Mediator — including any registered middleware — write a separate test against the generated `AppMediator`. Its constructor requires every handler dependency as a named parameter (named after the dependency's type, decapitalized), so mocks slot straight in. This is *not* a handler unit test and belongs under `test/integration/`.
 
 ```dart
 // test/integration/orders_mediator_test.dart
@@ -297,7 +297,7 @@ test('CreateOrderCommand routes to its handler', () async {
 });
 ```
 
-The integration test catches wiring errors (missing `@chassisHandler`, stale build_runner output) that handler-level tests miss.
+The integration test catches wiring errors (missing `@chassisHandler`, a handler unreachable from the `@ChassisApp` library, stale build_runner output) that handler-level tests miss. Note that dispatching an unregistered type throws `HandlerNotRegisteredException` — a wiring bug to fix, not a case to catch.
 
 ### Anti-pattern: instantiating through Mediator for a handler unit test
 
@@ -317,7 +317,7 @@ test('creates order on happy path', () async {
 
 ```dart
 // ✅ Construct the handler directly. No Mediator, no registration.
-final handler = CreateOrderCommandHandler(
+final handler = CreateOrderHandler(
   orderRepository: orderRepo,
   paymentGateway: paymentGateway,
   inventoryService: inventory,

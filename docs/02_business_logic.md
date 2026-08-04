@@ -1,6 +1,6 @@
 # Business Logic
 
-This guide explores the Application layer—where your business logic lives. While Chassis is able to automates 90% of standard CRUD operations, understanding manual implementation is essential for the complex scenarios that inevitably arise in production applications. By the end, you'll know how to write handlers for sophisticated workflows, test them in complete isolation, and compose them to handle intricate business requirements. This knowledge forms the foundation for making informed decisions about when to leverage automation and when to implement logic by hand.
+This guide explores the Application layer—where your business logic lives. Handlers are the home of validation, orchestration, and business rules, and the code generator wires them rather than writing them. By the end, you'll know how to write handlers for sophisticated workflows, test them in complete isolation, and compose them to handle intricate business requirements.
 
 ## Anatomy of Messages
 
@@ -41,7 +41,23 @@ final class UpdateUserEmailCommand extends Command<void> {
 }
 ```
 
-Commands should be self-contained, carrying all the information needed to execute the operation. Avoid holding references to repositories or services—those belong in handlers. Validation in constructors provides early failure detection, catching invalid states before they reach handlers. The command definition lives in [lib/src/mediator/command.dart:19-22](../lib/src/mediator/command.dart#L19-L22).
+Commands should be self-contained, carrying all the information needed to execute the operation. Avoid holding references to repositories or services—those belong in handlers. Validation in constructors provides early failure detection, catching invalid states before they reach handlers.
+
+Commands and Queries also expose a `params` getter used for logging and tracing. It defaults to an empty map; override it to surface the message's fields, so a `LoggingMiddleware` trace reads `CreateOrderCommand{userId: u1}` instead of a bare type name. Never include secrets — passwords, tokens — in `params`.
+
+```dart
+final class CreateOrderCommand extends Command<Order> {
+  CreateOrderCommand({required this.userId, required this.items});
+
+  final String userId;
+  final List<OrderItem> items;
+
+  @override
+  Map<String, Object?> get params => {'userId': userId, 'items': items.length};
+}
+```
+
+The command definition lives in `command.dart` in the chassis package.
 
 ### Queries
 
@@ -104,7 +120,7 @@ final class WatchCartQuery extends WatchQuery<ShoppingCart> {
 }
 ```
 
-The type system enforces correct usage. Attempting to watch a ReadQuery results in a compile error, preventing accidental stream subscriptions for one-time operations. This distinction enables the Mediator to route requests appropriately and avoid common bugs like memory leaks from uncancelled subscriptions. Query definitions are in [lib/src/mediator/query.dart:9-39](../lib/src/mediator/query.dart#L9-L39).
+The type system enforces correct usage. Attempting to watch a ReadQuery results in a compile error, preventing accidental stream subscriptions for one-time operations. This distinction enables the Mediator to route requests appropriately and avoid common bugs like memory leaks from uncancelled subscriptions. Query definitions are in `query.dart` in the chassis package.
 
 ## The Handler Contract
 
@@ -112,32 +128,29 @@ Handlers are plain Dart classes receiving and processing commands and queries. T
 
 ### CommandHandler Structure
 
-A CommandHandler implements the `CommandHandler<C, R>` interface (using `implements`), where `C` is the command type and `R` is the return type. Handlers receive dependencies via constructor injection, following the Dependency Inversion Principle from the layered architecture. This pattern keeps handlers testable and prevents them from creating their own dependencies.
+A CommandHandler implements the `CommandHandler<C, R>` interface (using `implements`), where `C` is the command type and `R` is the return type. Handlers receive dependencies via constructor injection, following the Dependency Inversion Principle from the layered architecture. This pattern keeps handlers testable and prevents them from creating their own dependencies. Declare dependencies as parameters of an unnamed constructor — the code generator injects them, whichever form they take; prefer named parameters once a handler has more than one dependency (see [Code Generation](03_code_generation.md)).
 
 ```dart
 @chassisHandler
 class CreateOrderHandler implements CommandHandler<CreateOrderCommand, Order> {
-  final IOrderRepository _orderRepository;
-  final IInventoryService _inventoryService;
-  final IPaymentGateway _paymentGateway;
-  final INotificationService _notificationService;
+  final OrderRepository orderRepository;
+  final InventoryService inventoryService;
+  final PaymentGateway paymentGateway;
+  final NotificationService notificationService;
 
   CreateOrderHandler({
-    required IOrderRepository orderRepository,
-    required IInventoryService inventoryService,
-    required IPaymentGateway paymentGateway,
-    required INotificationService notificationService,
-  })  : _orderRepository = orderRepository,
-        _inventoryService = inventoryService,
-        _paymentGateway = paymentGateway,
-        _notificationService = notificationService;
+    required this.orderRepository,
+    required this.inventoryService,
+    required this.paymentGateway,
+    required this.notificationService,
+  });
 
   @override
   Future<Order> run(CreateOrderCommand command) async {
     // Multi-step business logic
 
     // 1. Validate inventory
-    final available = await _inventoryService.checkAvailability(command.items);
+    final available = await inventoryService.checkAvailability(command.items);
     if (!available) {
       throw InsufficientInventoryException();
     }
@@ -149,13 +162,13 @@ class CreateOrderHandler implements CommandHandler<CreateOrderCommand, Order> {
     );
 
     // 3. Process payment
-    final paymentResult = await _paymentGateway.charge(
+    final paymentResult = await paymentGateway.charge(
       userId: command.userId,
       amount: total,
     );
 
     // 4. Create order
-    final order = await _orderRepository.create(
+    final order = await orderRepository.create(
       userId: command.userId,
       items: command.items,
       shippingAddress: command.shippingAddress,
@@ -163,14 +176,14 @@ class CreateOrderHandler implements CommandHandler<CreateOrderCommand, Order> {
     );
 
     // 5. Send confirmation
-    await _notificationService.sendOrderConfirmation(order);
+    await notificationService.sendOrderConfirmation(order);
 
     return order;
   }
 }
 ```
 
-Complex handlers orchestrate multiple services to fulfill a single command, implementing business workflows that span multiple domain boundaries. Error handling occurs at the handler level—throwing exceptions causes the ViewModel to receive an `AsyncError` state, which the UI can then render appropriately. The handler contract is defined in [lib/src/mediator/command.dart:44-78](../lib/src/mediator/command.dart#L44-L78).
+Complex handlers orchestrate multiple services to fulfill a single command, implementing business workflows that span multiple domain boundaries. Error handling occurs at the handler level—throwing exceptions causes the ViewModel to receive an `AsyncError` state, which the UI can then render appropriately. The handler contract is defined in `command.dart` in the chassis package.
 
 ### QueryHandler Structure
 
@@ -180,23 +193,27 @@ ReadHandlers often incorporate caching logic, since queries do not mutate state.
 
 ```dart
 // ReadHandler - One-time fetch
+@chassisHandler
 class GetUserProfileHandler implements ReadHandler<GetUserProfileQuery, UserProfile> {
-  final IUserRepository _userRepository;
-  final ICacheService _cacheService;
+  final UserRepository userRepository;
+  final CacheService cacheService;
 
-  GetUserProfileHandler(this._userRepository, this._cacheService);
+  GetUserProfileHandler({
+    required this.userRepository,
+    required this.cacheService,
+  });
 
   @override
   Future<UserProfile> read(GetUserProfileQuery query) async {
     // Check cache first
-    final cached = await _cacheService.get<UserProfile>('profile_${query.userId}');
+    final cached = await cacheService.get<UserProfile>('profile_${query.userId}');
     if (cached != null) return cached;
 
     // Fetch from repository
-    final profile = await _userRepository.getProfile(query.userId);
+    final profile = await userRepository.getProfile(query.userId);
 
     // Cache for 5 minutes
-    await _cacheService.set(
+    await cacheService.set(
       'profile_${query.userId}',
       profile,
       ttl: Duration(minutes: 5),
@@ -209,45 +226,47 @@ class GetUserProfileHandler implements ReadHandler<GetUserProfileQuery, UserProf
 // WatchHandler - Reactive stream
 @chassisHandler
 class WatchUserPresenceHandler implements WatchHandler<WatchUserPresenceQuery, PresenceStatus> {
-  final IRealtimeService _realtimeService;
-  final IUserRepository _userRepository;
+  final RealtimeService realtimeService;
+  final UserRepository userRepository;
 
-  WatchUserPresenceHandler(this._realtimeService, this._userRepository);
+  WatchUserPresenceHandler({
+    required this.realtimeService,
+    required this.userRepository,
+  });
 
   @override
   Stream<PresenceStatus> watch(WatchUserPresenceQuery query) async* {
     // Emit initial state
-    final initial = await _userRepository.getPresenceStatus(query.userId);
+    final initial = await userRepository.getPresenceStatus(query.userId);
     yield initial;
 
     // Stream real-time updates
-    await for (final update in _realtimeService.watchPresence(query.userId)) {
+    await for (final update in realtimeService.watchPresence(query.userId)) {
       yield update;
     }
   }
 }
 ```
 
-The WatchHandler's async generator pattern (`async*` and `yield`) provides elegant stream composition. You can emit an initial value immediately, then merge in real-time updates from external sources. This pattern appears frequently in applications consuming WebSockets, Firebase, or other streaming data sources. The query handler contract is defined in [lib/src/mediator/query.dart:76-178](../lib/src/mediator/query.dart#L76-L178).
+The WatchHandler's async generator pattern (`async*` and `yield`) provides elegant stream composition. You can emit an initial value immediately, then merge in real-time updates from external sources. This pattern appears frequently in applications consuming WebSockets, Firebase, or other streaming data sources. The query handler contract is defined in `query.dart` in the chassis package.
 
 ### Dependency Injection
 
 Handlers receive dependencies through constructors, not through service locators or global singletons. This explicit dependency declaration improves testability by making dependencies visible and mockable. It also prevents the hidden coupling that service locators introduce, where a class's dependencies are only discoverable by reading its implementation.
 
-The Mediator construction site becomes your composition root—the single place where you wire together your entire dependency graph. In a real-world application, the `AppMediator` (alongside others useful extensions) is automatically generated by Chassis thank to the `@chassisHandler` annotation.
+The Mediator construction site becomes your composition root—the single place where you wire together your entire dependency graph. In a real-world application this class is generated by `chassis_builder` from a `@ChassisApp` declaration: every distinct handler dependency becomes a required named parameter of the generated constructor, deduplicated across handlers. The generated code is equivalent to:
 
 ```dart
-// Dependency composition at app startup
+// Dependency composition at app startup (generated from @ChassisApp)
 class AppMediator extends Mediator {
   AppMediator({
-    required IUserRepository userRepository,
-    required IAuthRepository authRepository,
-    required ICacheService cacheService,
-    required IRealtimeService realtimeService,
-    required IOrderRepository orderRepository,
-    required IInventoryService inventoryService,
-    required IPaymentGateway paymentGateway,
-    required INotificationService notificationService,
+    required UserRepository userRepository,
+    required CacheService cacheService,
+    required RealtimeService realtimeService,
+    required OrderRepository orderRepository,
+    required InventoryService inventoryService,
+    required PaymentGateway paymentGateway,
+    required NotificationService notificationService,
   }) {
     // Register handlers with their dependencies
     registerCommandHandler(
@@ -260,13 +279,21 @@ class AppMediator extends Mediator {
     );
 
     registerQueryHandler(
-      GetUserProfileHandler(userRepository, cacheService),
+      GetUserProfileHandler(
+        userRepository: userRepository,
+        cacheService: cacheService,
+      ),
     );
 
     registerQueryHandler(
-      WatchUserPresenceHandler(realtimeService, userRepository),
+      WatchUserPresenceHandler(
+        realtimeService: realtimeService,
+        userRepository: userRepository,
+      ),
     );
   }
+
+  // ...one typed method per handler (createOrder, getUserProfile, ...)
 }
 ```
 
@@ -281,10 +308,10 @@ Handlers are the ideal unit for testing business logic because they are pure Dar
 import 'package:test/test.dart';
 import 'package:mocktail/mocktail.dart';
 
-class MockOrderRepository extends Mock implements IOrderRepository {}
-class MockInventoryService extends Mock implements IInventoryService {}
-class MockPaymentGateway extends Mock implements IPaymentGateway {}
-class MockNotificationService extends Mock implements INotificationService {}
+class MockOrderRepository extends Mock implements OrderRepository {}
+class MockInventoryService extends Mock implements InventoryService {}
+class MockPaymentGateway extends Mock implements PaymentGateway {}
+class MockNotificationService extends Mock implements NotificationService {}
 
 void main() {
   late CreateOrderHandler handler;
@@ -430,22 +457,39 @@ void main() {
     expect(result.id, equals('order123'));
   });
 
-  test('throws MediatorException when handler not registered', () {
+  test('throws HandlerNotRegisteredException when handler not registered', () {
     final mediator = Mediator();
     final command = UnregisteredCommand();
 
     expect(
       () => mediator.run(command),
-      throwsA(isA<MediatorException>()),
+      throwsA(isA<HandlerNotRegisteredException>()),
+    );
+  });
+
+  test('throws DuplicateHandlerException on double registration', () {
+    final mediator = Mediator();
+    CreateOrderHandler buildHandler() => CreateOrderHandler(
+          orderRepository: MockOrderRepository(),
+          inventoryService: MockInventoryService(),
+          paymentGateway: MockPaymentGateway(),
+          notificationService: MockNotificationService(),
+        );
+
+    mediator.registerCommandHandler(buildHandler());
+
+    expect(
+      () => mediator.registerCommandHandler(buildHandler()),
+      throwsA(isA<DuplicateHandlerException>()),
     );
   });
 }
 ```
 
-Integration tests catch wiring errors that unit tests miss. They verify that commands route to the correct handlers and that the Mediator's type resolution works as expected. These tests run quickly because they use mocks rather than real infrastructure.
+Integration tests catch wiring errors that unit tests miss. They verify that commands route to the correct handlers and that the Mediator's type resolution works as expected. These tests run quickly because they use mocks rather than real infrastructure. Note that both wiring exceptions extend the sealed `ChassisException` type and are thrown unconditionally — debug and release builds behave identically.
 
 ## Summary
 
-Manual handler implementation provides complete control over business logic, enabling complex workflows that code generation cannot automate. Commands and Queries express intent through immutable, well-named types. Handlers coordinate dependencies to fulfill those intents, while remaining testable through interface-based dependency injection. The testing strategy isolates handlers for unit tests, verifies wiring with integration tests, and mocks the Mediator for ViewModel tests.
+Handlers give you complete control over business logic, enabling complex workflows in plain, testable Dart. Commands and Queries express intent through immutable, well-named types. Handlers coordinate dependencies to fulfill those intents, while remaining testable through interface-based dependency injection. The testing strategy isolates handlers for unit tests, verifies wiring with integration tests, and mocks the Mediator for ViewModel tests.
 
-With this foundation in manual implementation, the next section explores how [Code Generation](03_code_generation.md) automates the 90% of handlers that follow standard patterns, eliminating boilerplate while preserving architectural benefits.
+With this foundation, the next section explores how [Code Generation](03_code_generation.md) automates the wiring around your handlers — the mediator class, its dependency injection, and its typed dispatch methods — while the logic itself stays in the handlers you just learned to write.

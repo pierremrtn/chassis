@@ -1,0 +1,7 @@
+# Shared strict analysis settings for all chassis packages.
+# Each package's analysis_options.yaml includes this file alongside its lint set.
+analyzer:
+  language:
+    strict-casts: true
+    strict-raw-types: true
+    strict-inference: true

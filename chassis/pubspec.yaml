@@ -1,5 +1,5 @@
 name: chassis
-description: An architectural framework for flutter applications
+description: Core architectural primitives of the chassis framework — CQRS commands and queries, mediator, middleware, and Async state.
 version: 1.0.0
 repository: https://github.com/pierremrtn/chassis
 homepage: https://affordant.gitbook.io/chassis/
@@ -13,8 +13,9 @@ topics:
 environment:
   sdk: ^3.6.2
 
+resolution: workspace
+
 dependencies:
-  rxdart: ^0.28.0
   meta: ^1.16.0
 
 

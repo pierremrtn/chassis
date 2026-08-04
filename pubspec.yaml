@@ -1,0 +1,12 @@
+name: chassis_workspace
+publish_to: none
+
+environment:
+  sdk: ^3.6.2
+
+workspace:
+  - chassis
+  - chassis_flutter
+  - chassis_builder
+  - chassis_builder/example
+  - chassis_builder/example_auth

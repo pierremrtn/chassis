@@ -31,6 +31,14 @@ class TickHandler implements WatchHandler<TickQuery, int> {
   Stream<int> watch(TickQuery query) => Stream.fromIterable([1, 2]);
 }
 
+final class BroadcastTickQuery extends WatchQuery<int> {}
+
+class BroadcastTickHandler implements WatchHandler<BroadcastTickQuery, int> {
+  @override
+  Stream<int> watch(BroadcastTickQuery query) =>
+      Stream.fromIterable([1, 2]).asBroadcastStream();
+}
+
 final class FailingTickQuery extends WatchQuery<int> {}
 
 class FailingTickHandler implements WatchHandler<FailingTickQuery, int> {
@@ -174,7 +182,24 @@ void main() {
         throwsA(isA<StateError>()),
       );
 
-      expect(sink.records.single.event, ChassisLogEvent.error);
+      // The error is logged; the listener (toList) cancels on error, so no
+      // done record follows.
+      expect(sink.events.first, ChassisLogEvent.error);
+    });
+
+    test('watch preserves the broadcast nature of the source stream', () async {
+      final sink = FakeSink();
+      final mediator = Mediator()
+        ..registerQueryHandler(BroadcastTickHandler())
+        ..addMiddleware(LoggingMiddleware(sink: sink));
+
+      final broadcast = mediator.watch(BroadcastTickQuery());
+      expect(broadcast.isBroadcast, isTrue);
+
+      final single = Mediator()
+        ..registerQueryHandler(TickHandler())
+        ..addMiddleware(LoggingMiddleware(sink: sink));
+      expect(single.watch(TickQuery()).isBroadcast, isFalse);
     });
   });
 }

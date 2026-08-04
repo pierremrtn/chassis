@@ -1,25 +1,28 @@
 /// The Chassis Flutter package provides Flutter-specific extensions and utilities
 /// for building scalable Flutter applications using the chassis architecture.
 ///
-/// This package builds upon the core [chassis] package and provides:
+/// This package builds upon the core `chassis` package and provides:
 ///
 /// ## ViewModel Pattern
 /// The [ViewModel] class provides a reactive state management solution that integrates
 /// with the chassis mediator pattern. It manages both state and events, providing
 /// automatic UI updates and event handling.
 ///
-/// ## State Management
-/// - [StreamState] classes for handling streaming operations with loading, data, and error states
-/// - [FutureState] classes for handling one-time async operations
-/// - Type-safe state handling with pattern matching support
+/// ## Async State
+/// The core [Async] sealed class ([AsyncData], [AsyncLoading], [AsyncError])
+/// models the state of asynchronous operations, and [AsyncBuilder] renders it
+/// with anti-flickering behavior (previous data is kept visible while
+/// refreshing).
 ///
 /// ## Provider Integration
 /// The [ViewModelProvider] widget provides dependency injection for view models
 /// using the provider package, with automatic lifecycle management.
 ///
 /// ## Event Handling
-/// The [ConsumerMixin] makes it easy to listen to view model events in StatefulWidgets
-/// with automatic subscription management.
+/// The [EventListener] widget invokes a callback for each view model event —
+/// the event-side counterpart of [AsyncBuilder]. `ViewModelProvider.withEventListener`
+/// handles events at the provision site, and [EventListenerMixin] serves
+/// StatefulWidgets that would rather not wrap their tree.
 ///
 /// ## Safe Notifiers
 /// [SafeChangeNotifier] and [SafeNotifierMixin] provide safe disposal behavior
@@ -31,44 +34,35 @@
 ///
 /// // Define a view model
 /// class UserViewModel extends ViewModel<UserState, UserEvent> {
-///   UserViewModel(Mediator mediator) : super(mediator, UserState.initial());
+///   UserViewModel(this._mediator) : super(UserState.initial());
+///
+///   final Mediator _mediator;
 ///
 ///   void loadUser(String userId) {
-///     read(GetUserQuery(userId: userId), (state) {
-///       switch (state) {
-///         case FutureLoading():
-///           setState(UserState.loading());
-///         case FutureSuccess(:final data):
-///           setState(UserState.loaded(data));
-///         case FutureError(:final error):
-///           setState(UserState.error(error.toString()));
-///       }
-///     });
+///     run(
+///       () => _mediator.read(GetUserQuery(userId: userId)),
+///       key: #user,
+///       policy: const RunPolicy.restartable(),
+///       current: state.user,
+///       onState: (user) => setState(state.copyWith(user: user)),
+///     );
 ///   }
 /// }
 ///
 /// // Use in a widget
-/// class UserScreen extends StatefulWidget {
-///   @override
-///   _UserScreenState createState() => _UserScreenState();
-/// }
-///
-/// class _UserScreenState extends State<UserScreen> with ConsumerMixin {
-///   @override
-///   void initState() {
-///     super.initState();
-///     onEvent<UserViewModel, UserEvent>((event) {
-///       // Handle events
-///     });
-///   }
+/// class UserScreen extends StatelessWidget {
+///   const UserScreen({super.key});
 ///
 ///   @override
 ///   Widget build(BuildContext context) {
 ///     return ViewModelProvider(
-///       create: (context) => UserViewModel(mediator),
+///       create: (context) => UserViewModel(context.read<Mediator>())..loadUser('42'),
 ///       child: Consumer<UserViewModel>(
 ///         builder: (context, viewModel, child) {
-///           return Text('User: ${viewModel.state.name}');
+///           return AsyncBuilder<User>(
+///             state: viewModel.state.user,
+///             builder: (context, user) => Text('User: ${user.name}'),
+///           );
 ///         },
 ///       ),
 ///     );
@@ -77,9 +71,11 @@
 /// ```
 library;
 
+export 'package:chassis/chassis.dart';
+export 'package:provider/provider.dart';
+
+export 'src/safe_notifier.dart';
 export 'src/view_model/view_model.dart';
 export 'src/view_model/view_model_provider.dart';
-export 'package:provider/provider.dart';
-export 'package:chassis/chassis.dart';
 export 'src/widgets/async_builder.dart';
-export 'src/consumer_widget/consumer_mixin.dart';
+export 'src/widgets/event_listener.dart';

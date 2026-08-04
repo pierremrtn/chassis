@@ -1,89 +1,115 @@
-// import 'dart:io';
+import 'package:chassis_flutter/chassis_flutter.dart';
+import 'package:flutter/material.dart';
 
-// import 'package:chassis/chassis.dart';
-// import 'package:chassis_flutter/chassis_flutter.dart';
+// --- Logic layer: query + handler ---
 
-// // Domain
+final class WatchCounterQuery extends WatchQuery<int> {}
 
-// // repo
-// abstract class IUserRepo {
-//   UserData get user;
-//   Stream<UserData> get stream;
-// }
+class WatchCounterHandler implements WatchHandler<WatchCounterQuery, int> {
+  @override
+  Stream<int> watch(WatchCounterQuery query) =>
+      Stream.periodic(const Duration(seconds: 1), (i) => i);
+}
 
-// // Model
-// class UserData {}
+final class ResetCounterCommand extends Command<void> {}
 
+class ResetCounterHandler implements CommandHandler<ResetCounterCommand, void> {
+  @override
+  Future<void> run(ResetCounterCommand command) async {}
+}
 
-// // Use cases
-// class UserQuery implements ReadAndWatch<UserData> {}
+// --- Presentation layer: state, events, view model ---
 
-// class UserQueryHandler extends ReadAndWatchHandler<UserQuery, UserData> {
-//   UserQueryHandler({required IUserRepo repo})
-//       : super(
-//           read: (query) async => repo.user,
-//           watch: (query) => repo.stream,
-//         );
-// }
+class CounterState {
+  const CounterState({this.count = const Async.loading()});
 
-// final a = Mediator().read(UserQuery());
+  final Async<int> count;
 
+  CounterState copyWith({Async<int>? count}) =>
+      CounterState(count: count ?? this.count);
+}
 
-// // UI
-// class MyViewModel extends ViewModel<int> {
-//   MyViewModel({
-//     required UserQueryHandler userHandler,
-//   }) : super(0) {
+sealed class CounterEvent {}
 
-//     userQuery = readHandle(userHandler);
-//     userStream = watchHandle(userHandler);
+final class CounterResetEvent implements CounterEvent {}
 
-//     autoDisposeStreamSubscription(userHandler.watch(UserQuery()).listen((data) {}));
+class CounterViewModel extends ViewModel<CounterState, CounterEvent> {
+  CounterViewModel(this._mediator) : super(const CounterState()) {
+    watchCounter();
+  }
 
-//     readHandle(userHandler);
+  final Mediator _mediator;
 
-//     autoDispose(disposable)
-//     autoDisposeStreamSubscription(sub)
-//     listenTo(notifier, () {});
-//     mergeAndListenTo([notifier, notigier], () {});
-//     listenToStreams([userQuery.stream], () {});
-//     listenToHandle(userQuery, (state) {});
-//     listenToHandles([userQuery, userStream], () {});
+  void watchCounter() {
+    watch(
+      _mediator.watch(WatchCounterQuery()),
+      current: state.count,
+      onState: (count) => setState(state.copyWith(count: count)),
+    );
+  }
 
+  void reset() {
+    run(
+      () => _mediator.run(ResetCounterCommand()),
+      onSuccess: (_) => sendEvent(CounterResetEvent()),
+    );
+  }
+}
 
-//     listenToHandle(userStream, () {
-//       if (userStream.state case HandleStateSuccess(:final data)) {
-//         print(data);
-//       }
-//     });
+// --- App wiring ---
 
-//     // NTH
-//     listenToValueNotifier(...);
-//     listen2Handles(a, b, c, (a, b) {});
-//     listen3Handles(a, b, c, (a, b, c) {});
-//   }
+void main() {
+  final mediator = Mediator()
+    ..registerQueryHandler(WatchCounterHandler())
+    ..registerCommandHandler(ResetCounterHandler())
+    ..addMiddleware(LoggingMiddleware());
 
-//   late final ReadHandle<UserQuery, UserData> userQuery;
-//   late final WatchHandle<UserQuery, UserData> userStream;
+  runApp(MyApp(mediator: mediator));
+}
 
+class MyApp extends StatelessWidget {
+  const MyApp({super.key, required this.mediator});
 
+  final Mediator mediator;
 
-//   void getUser() async {
-//     userQuery.refresh();
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      home: ViewModelProvider.withEventListener<CounterViewModel, CounterEvent>(
+        create: (context) => CounterViewModel(mediator),
+        onEvent: (context, viewModel, event) {
+          switch (event) {
+            case CounterResetEvent():
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Counter reset')),
+              );
+          }
+        },
+        child: const CounterScreen(),
+      ),
+    );
+  }
+}
 
-//     final res = await read(userHandler);
-//     res.when(
-//       success: (s) => emit(s),
-//       error: (e) => 
-//     );
-//   }
-// }
+class CounterScreen extends StatelessWidget {
+  const CounterScreen({super.key});
 
-
-// // Widget tree
-
-// // final p = Provider(
-// //   create: (context) => MyViewModel(
-// //     userHandler: Mediator().handler(),
-// //   ),
-// // );
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Chassis counter')),
+      body: Center(
+        child: AsyncBuilder<int>(
+          state: context.select(
+            (CounterViewModel vm) => vm.state.count,
+          ),
+          builder: (context, count) => Text('Count: $count'),
+        ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => context.read<CounterViewModel>().reset(),
+        child: const Icon(Icons.refresh),
+      ),
+    );
+  }
+}

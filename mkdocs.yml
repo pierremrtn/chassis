@@ -1,5 +1,6 @@
 site_name: Chassis Documentation
-site_url: https://your-username.github.io/chassis/
+site_url: https://pierremrtn.github.io/chassis/
+repo_url: https://github.com/pierremrtn/chassis
 
 theme:
   name: material
@@ -11,18 +12,13 @@ theme:
   features:
     - content.code.copy
 
-# This tells MkDocs where to find your Markdown files
-docs_dir: documentation
+docs_dir: docs
 
-
-# How your navigation sidebar will be structured
 nav:
   - 'Quick Start': '00_quick_start.md'
-  - 'Domain Concepts': '01_domain_concepts.md'
-  - 'View Concepts': '02_view_concepts.md'
-  - 'Project Structure': '03_project_organisation.md'
-  - 'Naming Conventions': '04_naming_convention.md'
-  - 'Practical Guides':
-    - 'Writing Business Logic': '05_business_logic_guide.md'
-    - 'Writing ViewModels': '06_view_model_guide.md'
-    - 'View Integration': '07_view_integration_guide.md'
+  - 'Core Architecture': '01_core_architecture.md'
+  - 'Business Logic': '02_business_logic.md'
+  - 'Code Generation': '03_code_generation.md'
+  - 'UI Integration': '04_ui_integration.md'
+  - 'Coding Rules': 'coding_rules.md'
+  - 'Error Management': 'error_management.md'

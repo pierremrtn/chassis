@@ -4,7 +4,19 @@ import 'dart:async';
 ///
 /// Queries represent read operations that retrieve data without modifying state.
 /// They are the foundation for both one-time reads and continuous watching.
-sealed class Query<T> {}
+sealed class Query<T> {
+  /// Parameters of this query, for logging and tracing purposes.
+  ///
+  /// Override to expose the query's fields. Used by [toString] and by
+  /// `LoggingMiddleware` so a trace reads `GetUserQuery{id: 42}` instead of
+  /// a bare type name.
+  ///
+  /// Never include secrets (passwords, tokens) in [params].
+  Map<String, Object?> get params => const {};
+
+  @override
+  String toString() => params.isEmpty ? '$runtimeType' : '$runtimeType$params';
+}
 
 /// Abstract interface for one-time read queries.
 ///
@@ -20,7 +32,7 @@ sealed class Query<T> {}
 ///   final String userId;
 /// }
 /// ```
-abstract base class ReadQuery<T> implements Query<T> {}
+abstract base class ReadQuery<T> extends Query<T> {}
 
 /// Abstract interface for streaming queries that watch for changes.
 ///
@@ -36,7 +48,7 @@ abstract base class ReadQuery<T> implements Query<T> {}
 ///   final String userId;
 /// }
 /// ```
-abstract base class WatchQuery<T> implements Query<T> {}
+abstract base class WatchQuery<T> extends Query<T> {}
 
 /// Abstract base class for query handlers.
 ///
@@ -54,15 +66,12 @@ sealed class QueryHandler<Q extends Query<R>, R> {}
 ///
 /// Example usage:
 /// ```dart
+/// @chassisHandler
 /// class GetUserQueryHandler implements ReadHandler<GetUserQuery, User> {
-///   final IUserRepository _userRepository;
-///   final ICacheService _cacheService;
+///   GetUserQueryHandler(this._userRepository, this._cacheService);
 ///
-///   GetUserQueryHandler({
-///     required IUserRepository userRepository,
-///     required ICacheService cacheService,
-///   })  : _userRepository = userRepository,
-///         _cacheService = cacheService;
+///   final UserRepository _userRepository;
+///   final CacheService _cacheService;
 ///
 ///   @override
 ///   Future<User> read(GetUserQuery query) async {
@@ -99,15 +108,12 @@ abstract interface class ReadHandler<Q extends ReadQuery<R>, R>
 ///
 /// Example usage:
 /// ```dart
+/// @chassisHandler
 /// class WatchUserQueryHandler implements WatchHandler<WatchUserQuery, User> {
-///   final IUserRepository _userRepository;
-///   final IRealtimeService _realtimeService;
+///   WatchUserQueryHandler(this._userRepository, this._realtimeService);
 ///
-///   WatchUserQueryHandler({
-///     required IUserRepository userRepository,
-///     required IRealtimeService realtimeService,
-///   })  : _userRepository = userRepository,
-///         _realtimeService = realtimeService;
+///   final UserRepository _userRepository;
+///   final RealtimeService _realtimeService;
 ///
 ///   @override
 ///   Stream<User> watch(WatchUserQuery query) {

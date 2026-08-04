@@ -61,7 +61,8 @@ void main() {
     testWidgets(
         'maintains state (Anti-flickering) when refreshing (Loading with previous value)',
         (tester) async {
-      final state = Async<String>.loading('previous data');
+      final state =
+          Async<String>.loading(previous: const AsyncData('previous data'));
 
       await tester.pumpWidget(MaterialApp(
         home: AsyncBuilder<String>(
@@ -80,7 +81,8 @@ void main() {
     testWidgets(
         'shows loading if maintainState is false even with previous value',
         (tester) async {
-      final state = Async<String>.loading('previous data');
+      final state =
+          Async<String>.loading(previous: const AsyncData('previous data'));
 
       await tester.pumpWidget(MaterialApp(
         home: AsyncBuilder<String>(
@@ -99,8 +101,8 @@ void main() {
     testWidgets(
         'maintains state (Anti-flickering) when error occurs with previous value',
         (tester) async {
-      final state =
-          Async<String>.error(Exception('fail'), previous: 'previous data');
+      final state = Async<String>.error(Exception('fail'),
+          previous: const AsyncData('previous data'));
 
       await tester.pumpWidget(MaterialApp(
         home: AsyncBuilder<String>(
@@ -114,6 +116,37 @@ void main() {
       // Should show data, NOT error
       expect(find.text('Data: previous data'), findsOneWidget);
       expect(find.textContaining('Error'), findsNothing);
+    });
+
+    testWidgets('renders the data branch for AsyncData(null) with nullable T',
+        (tester) async {
+      const state = Async<String?>.data(null);
+
+      await tester.pumpWidget(MaterialApp(
+        home: AsyncBuilder<String?>(
+          state: state,
+          builder: (context, data) => Text('Data: $data'),
+          loadingBuilder: (context) => const Text('Loading...'),
+        ),
+      ));
+
+      expect(find.text('Data: null'), findsOneWidget);
+      expect(find.text('Loading...'), findsNothing);
+    });
+
+    testWidgets('renders data even when maintainState is false',
+        (tester) async {
+      const state = Async.data('fresh');
+
+      await tester.pumpWidget(MaterialApp(
+        home: AsyncBuilder<String>(
+          state: state,
+          builder: (context, data) => Text('Data: $data'),
+          maintainState: false,
+        ),
+      ));
+
+      expect(find.text('Data: fresh'), findsOneWidget);
     });
   });
 }

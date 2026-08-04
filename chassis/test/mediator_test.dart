@@ -59,8 +59,7 @@ class UserQueryBHandler implements ReadHandler<UserQueryB, String> {
 void main() {
   group('Mediator dispatch', () {
     test('read dispatches to the registered ReadHandler', () async {
-      final mediator = Mediator()
-        ..registerQueryHandler(GetGreetingHandler());
+      final mediator = Mediator()..registerQueryHandler(GetGreetingHandler());
 
       expect(await mediator.read(GetGreetingQuery('World')), 'Hello World');
     });

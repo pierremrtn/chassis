@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      # chassis_builder joins the workspace in Phase 4 (analyzer >=13 migration);
+      # until then it resolves standalone.
+      - run: dart pub get
+        working-directory: chassis_builder
+      - run: flutter pub get
+        working-directory: chassis_builder/example
+      - run: dart format --output=none --set-exit-if-changed chassis chassis_flutter chassis_builder
+
+  analyze-and-test:
+    name: Analyze & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      # chassis_builder joins the workspace in Phase 4 (analyzer >=13 migration);
+      # until then it resolves standalone.
+      - run: dart pub get
+        working-directory: chassis_builder
+      - run: flutter pub get
+        working-directory: chassis_builder/example
+
+      - name: Analyze chassis
+        run: dart analyze --fatal-infos chassis
+      - name: Analyze chassis_flutter
+        run: dart analyze --fatal-infos chassis_flutter
+      - name: Analyze chassis_builder
+        run: dart analyze --fatal-infos chassis_builder
+
+      - name: Test chassis
+        run: dart test
+        working-directory: chassis
+      - name: Test chassis_flutter
+        run: flutter test
+        working-directory: chassis_flutter
+      - name: Test chassis_builder
+        run: dart test
+        working-directory: chassis_builder
+
+  codegen-check:
+    name: Codegen up to date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      # chassis_builder joins the workspace in Phase 4 (analyzer >=13 migration);
+      # until then it resolves standalone.
+      - run: dart pub get
+        working-directory: chassis_builder
+      - run: flutter pub get
+        working-directory: chassis_builder/example
+      - name: Regenerate example
+        run: dart run build_runner build --delete-conflicting-outputs
+        working-directory: chassis_builder/example
+      - name: Fail if generated files changed
+        run: git diff --exit-code

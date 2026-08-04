@@ -1,12 +1,12 @@
 # Quick Start
 
-This guide builds a complete todo list application to introduce the Chassis framework. By implementing each component manually, you'll understand how data flows from the UI through business logic to the repository and back. This foundation prepares you to leverage code generation effectively in production applications. Expect to complete this tutorial in approximately 15 minutes, ending with a working application that demonstrates the core architectural patterns.
+This guide builds a complete todo list application to introduce the Chassis framework. You'll hand-write the pieces that carry decisions — the model, the repository, the handlers, the ViewModel, and the UI — and let `chassis_builder` generate the wiring between them: the mediator that registers every handler and exposes a typed method for each operation. Expect to complete this tutorial in approximately 15 minutes, ending with a working application that demonstrates the core architectural patterns.
 
 ## Installation
 
 ### Adding Dependencies
 
-Chassis consists of three core packages that work together. The `chassis` package provides pure Dart primitives for Commands, Queries, and the Mediator. The `chassis_flutter` package integrates with Flutter's widget tree through ViewModels and reactive widgets. The `chassis_builder` package generates boilerplate code from annotations, though we won't use it in this Quick Start.
+Chassis consists of three core packages that work together. The `chassis` package provides pure Dart primitives for Commands, Queries, and the Mediator. The `chassis_flutter` package integrates with Flutter's widget tree through ViewModels and reactive widgets. The `chassis_builder` package generates the mediator wiring from annotations — we'll use it to produce the application's mediator.
 
 Add these dependencies to your `pubspec.yaml`:
 
@@ -14,16 +14,27 @@ Add these dependencies to your `pubspec.yaml`:
 dependencies:
   flutter:
     sdk: flutter
-  chassis: ^0.0.1
-  chassis_flutter: ^0.0.1
-  provider: ^6.0.0
+  chassis: ^1.0.0
+  chassis_flutter: ^1.0.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  chassis_builder: ^0.0.1
-  build_runner: ^2.4.0
+  chassis_builder: ^1.0.0
+  build_runner: ^2.15.0
 ```
+
+No `build.yaml` is required — `chassis_builder` applies itself automatically to any package that lists it as a dev dependency.
+
+### Installing the LLM Skills (optional)
+
+If you code with an AI assistant, chassis ships a set of [LLM skills](https://github.com/pierremrtn/chassis/tree/main/chassis/skills) — DO/DON'T rules and workflow checklists that keep the agent on the framework's rails. After `pub get`, install them into the project with:
+
+```bash
+dart run chassis:install_skills
+```
+
+This symlinks each skill from the resolved chassis package (in your local pub cache) into `.claude/skills/`, so the skills always match the chassis version the project pins — re-run the command after upgrading chassis. Pass a target directory for other agents, or `--copy` to copy instead of symlinking.
 
 ## The Todo List Example
 
@@ -63,25 +74,27 @@ Then create `lib/data/todo_repository.dart`:
 
 ```dart
 import 'dart:async';
-import '../documentation/todo.dart';
+import 'todo.dart';
 
-abstract interface class ITodoRepository {
+abstract interface class TodoRepository {
   Stream<List<Todo>> watchTodos();
   Future<void> addTodo(String title);
   Future<void> toggleTodo(String id);
 }
 
-class InMemoryTodoRepository implements ITodoRepository {
+class InMemoryTodoRepository implements TodoRepository {
   final _controller = StreamController<List<Todo>>.broadcast();
   final List<Todo> _todos = [];
   int _nextId = 0;
 
-  InMemoryTodoRepository() {
-    _controller.add(List.unmodifiable(_todos));
-  }
-
   @override
-  Stream<List<Todo>> watchTodos() => _controller.stream;
+  Stream<List<Todo>> watchTodos() async* {
+    // A broadcast stream drops emissions made before a listener subscribes,
+    // so each subscriber first gets a snapshot of the current list, then the
+    // live updates.
+    yield List.unmodifiable(_todos);
+    yield* _controller.stream;
+  }
 
   @override
   Future<void> addTodo(String title) async {
@@ -111,7 +124,7 @@ class InMemoryTodoRepository implements ITodoRepository {
 }
 ```
 
-The interface `ITodoRepository` declares what operations are available (watchTodos, addTodo, toggleTodo) without specifying how they work. The implementation `InMemoryTodoRepository` uses a `StreamController` to broadcast todo list changes reactively. The `Todo` model uses the `copyWith` pattern to ensure immutability—rather than modifying todos in place, we create new instances with updated values. By programming to the interface, your application can work with any implementation—swap `InMemoryTodoRepository` for a Firebase version without changing your business logic.
+The interface `TodoRepository` declares what operations are available (watchTodos, addTodo, toggleTodo) without specifying how they work. The implementation `InMemoryTodoRepository` uses a `StreamController` to broadcast todo list changes reactively; because a broadcast stream has no memory, `watchTodos()` is an `async*` generator that yields the current list before forwarding live updates — every subscriber gets an immediate value, no matter when it subscribes. The `Todo` model uses the `copyWith` pattern to ensure immutability—rather than modifying todos in place, we create new instances with updated values. By programming to the interface, your application can work with any implementation—swap `InMemoryTodoRepository` for a Firebase version without changing your business logic.
 
 ### Writing Business Logic
 
@@ -137,7 +150,7 @@ In Chassis, business logic lives in stateless handlers classes that receive mess
 
 Messages are pure data containers that carry intent. The `WatchTodosQuery` message says "I want to watch the todo list," while the `AddTodoCommand` says "I want to add a todo." The actual implementation lives in the corresponding handler.
 
-> **Note:** In real-world applications, many Handlers are only wrappers around repository methods. The `@generateHandler` annotation allows to generates them automatically. We write them manually here to understand what the code generation produces. See [Code Generation](03_code_generation.md) to learn how to eliminate this boilerplate.
+> **Note:** Handlers are always written by hand — they are where your business logic lives. What Chassis generates is the wiring around them: the `@chassisHandler` annotation below marks a handler so `chassis_builder` can register it in the generated mediator and expose a typed method for it. See [Code Generation](03_code_generation.md) for everything the generator enforces.
 
 Create `lib/domain/todo_handlers.dart`:
 
@@ -150,15 +163,15 @@ import '../data/todo_repository.dart';
 final class WatchTodosQuery extends WatchQuery<List<Todo>> {
 }
 
-@chassisHandler // Enables automatic registration and type-safe extensions
-class WatchTodosQueryHandler implements WatchHandler<WatchTodosQuery, List<Todo>> {
-  final ITodoRepository _repository;
+@chassisHandler // Marks this handler for wiring by chassis_builder
+class WatchTodosHandler implements WatchHandler<WatchTodosQuery, List<Todo>> {
+  final TodoRepository repository;
 
-  WatchTodosQueryHandler(this._repository);
+  WatchTodosHandler({required this.repository});
 
   @override
   Stream<List<Todo>> watch(WatchTodosQuery query) {
-    return _repository.watchTodos();
+    return repository.watchTodos();
   }
 }
 
@@ -170,14 +183,14 @@ final class AddTodoCommand extends Command<void> {
 }
 
 @chassisHandler
-class AddTodoCommandHandler implements CommandHandler<AddTodoCommand, void> {
-  final ITodoRepository _repository;
+class AddTodoHandler implements CommandHandler<AddTodoCommand, void> {
+  final TodoRepository repository;
 
-  AddTodoCommandHandler(this._repository);
+  AddTodoHandler({required this.repository});
 
   @override
   Future<void> run(AddTodoCommand command) async {
-    await _repository.addTodo(command.title);
+    await repository.addTodo(command.title);
   }
 }
 
@@ -189,14 +202,14 @@ final class ToggleTodoCommand extends Command<void> {
 }
 
 @chassisHandler
-class ToggleTodoCommandHandler implements CommandHandler<ToggleTodoCommand, void> {
-  final ITodoRepository _repository;
+class ToggleTodoHandler implements CommandHandler<ToggleTodoCommand, void> {
+  final TodoRepository repository;
 
-  ToggleTodoCommandHandler(this._repository);
+  ToggleTodoHandler({required this.repository});
 
   @override
   Future<void> run(ToggleTodoCommand command) async {
-    await _repository.toggleTodo(command.id);
+    await repository.toggleTodo(command.id);
   }
 }
 ```
@@ -214,37 +227,54 @@ Your UI needs a single entry point to execute business logic—this is the Media
 - **Single dependency for UI**: ViewModels only need the Mediator, simplifying their constructor signatures
 - **Dependency injection**: The Mediator wires handlers to their dependencies at startup, managing the object graph
 - **Extensibility**: Middleware can intercept Commands and Queries for logging, validation, or caching without changing handlers
-- **Discoverability**: Type-safe extension methods make all available operations autocomplete-friendly
+- **Discoverability**: Typed methods on the mediator make all available operations autocomplete-friendly
 
-In production applications, `chassis_builder` automatically generates the Mediator implementation, handler registration, and type-safe extension methods by scanning for `@chassisHandler` annotations. We'll create this manually here to understand what gets generated.
-
-Create `lib/app/app_mediator.dart`:
+This class — handler registrations plus one typed method per operation — is pure transcription, so Chassis generates it. Annotate a library with `@ChassisApp` on its library directive — any library works, and the generator emits the mediator next to it. We'll use a dedicated `lib/mediator.dart`, so everything mediator-related lives in one file (we'll complete it at the end of the guide):
 
 ```dart
+// lib/mediator.dart
+@ChassisApp(mediatorName: 'AppMediator')
+library;
+
 import 'package:chassis/chassis.dart';
-import '../data/todo.dart';
-import '../data/todo_repository.dart';
-import '../domain/todo_handlers.dart';
 
+// The generator collects every @chassisHandler reachable from this
+// library's imports — this import is what makes the handlers visible.
+import 'domain/todo_handlers.dart';
+```
+
+Then run the generator:
+
+```bash
+dart run build_runner build --delete-conflicting-outputs
+```
+
+(`--delete-conflicting-outputs` lets the build overwrite stale generated files without asking; it's safe to pass always.)
+
+The generator emits `lib/mediator.chassis.dart` next to the annotated library, containing the concrete mediator:
+
+```dart
+// mediator.chassis.dart (generated — never edit by hand)
 class AppMediator extends Mediator {
-  AppMediator({required ITodoRepository todoRepository}) {
-    registerQueryHandler(WatchTodosQueryHandler(todoRepository));
-    registerCommandHandler(AddTodoCommandHandler(todoRepository));
-    registerCommandHandler(ToggleTodoCommandHandler(todoRepository));
+  AppMediator({required TodoRepository todoRepository}) {
+    registerQueryHandler(WatchTodosHandler(repository: todoRepository));
+    registerCommandHandler(AddTodoHandler(repository: todoRepository));
+    registerCommandHandler(ToggleTodoHandler(repository: todoRepository));
   }
-}
 
-// Extension methods provide type-safe access to operations
-extension AppMediatorExtensions on Mediator {
+  // Typed methods provide type-safe access to operations. Each one
+  // dispatches through the mediator, so middleware always applies.
   Stream<List<Todo>> watchTodos() => watch(WatchTodosQuery());
-  Future<void> addTodo(String title) => run(AddTodoCommand(title: title));
-  Future<void> toggleTodo(String id) => run(ToggleTodoCommand(id: id));
+  Future<void> addTodo({required String title}) =>
+      run(AddTodoCommand(title: title));
+  Future<void> toggleTodo({required String id}) =>
+      run(ToggleTodoCommand(id: id));
 }
 ```
 
-The extension methods transform generic message dispatching into a clean, type-safe API. Instead of `mediator.run(AddTodoCommand(title: title))`, you call `mediator.addTodo(title)`. Your IDE autocompletes available operations, making the application's capabilities immediately discoverable.
+Typing `mediator.` in the IDE now lists everything the application can do: `watchTodos()`, `addTodo(title: ...)`, `toggleTodo(id: ...)` — one typed method per message, named and shaped after the message class. The constructor asks for exactly the dependencies the handlers need, and every typed method dispatches through the mediator, so middleware applies everywhere.
 
-This entire file —the Mediator class, handler registrations, and extension methods- is automatically generated from your `@chassisHandler` annotations. See [Code Generation](03_code_generation.md) to learn how to eliminate this boilerplate entirely.
+Wiring mistakes — a missing dependency, two handlers for the same message — surface at build time, not at runtime. See [Code Generation](03_code_generation.md) for the full guarantees and the module system that shares handlers across applications.
 
 ### Preparing data for the view
 
@@ -256,11 +286,13 @@ Create `lib/presentation/todo_view_model.dart`:
 import 'package:chassis/chassis.dart';
 import 'package:chassis_flutter/chassis_flutter.dart';
 import '../data/todo.dart';
-import '../app/app_mediator.dart';
+import '../mediator.chassis.dart';
 
 class TodoState {
   const TodoState({required this.todos});
 
+  // Async<T> represents an asynchronous value as loading / data / error,
+  // so the UI always knows which of the three states to render.
   final Async<List<Todo>> todos;
 
   TodoState copyWith({Async<List<Todo>>? todos}) {
@@ -278,45 +310,74 @@ class TodoAddedEvent implements TodoEvent {
   const TodoAddedEvent();
 }
 
+class TodoToggleFailedEvent implements TodoEvent {
+  const TodoToggleFailedEvent(this.error);
+  final Object error;
+}
+
 class TodoViewModel extends ViewModel<TodoState, TodoEvent> {
-  TodoViewModel(Mediator mediator)
-      : super(mediator, initial: TodoState.initial()) {
+  TodoViewModel(this._mediator) : super(TodoState.initial()) {
     // Start watching the todo list immediately
     watch(
-      mediator.watchTodos(),
+      _mediator.watchTodos(),
       onState: (asyncTodos) => setState(state.copyWith(todos: asyncTodos)),
     );
   }
 
+  final AppMediator _mediator;
+
   void addTodo(String title) {
     run(
-      mediator.addTodo(title),
-      onData: (_) => sendEvent(TodoAddedEvent()),
+      () => _mediator.addTodo(title: title),
+      onSuccess: (_) => sendEvent(const TodoAddedEvent()),
     );
   }
 
   void toggleTodo(String id) {
-    run(mediator.toggleTodo(id));
+    run(
+      () => _mediator.toggleTodo(id: id),
+      onError: (error) => sendEvent(TodoToggleFailedEvent(error)),
+    );
   }
 }
 ```
 
-The ViewModel demonstrates Chassis's complete data flow cycle. The `watch()` call establishes a subscription to the repository's todo stream through the Mediator. When the repository emits a new list, the ViewModel receives it and wraps it in `Async<T>`, then updates its state. The UI automatically rebuilds to reflect the new todo list.
+The ViewModel demonstrates Chassis's complete data flow cycle. The `watch()` call establishes a subscription to the repository's todo stream through the Mediator. When the repository emits a new list, the ViewModel receives it and wraps it in `Async<T>`, then updates its state. The UI automatically rebuilds to reflect the new todo list. The ViewModel keeps a field typed as `AppMediator` so it can call the typed methods; the only thing passed to `super` is the initial state.
+
+Both `run()` and `watch()` follow the same callback contract:
+
+- `onState` (if provided) fires for **every** transition — loading, data, and error — with the corresponding `Async<T>` value.
+- `onSuccess` (on `run`) / `onData` (on `watch`) and `onError` are **additive** conveniences, invoked *after* `onState` for their respective transition. Providing them never suppresses `onState`, and at least one callback must be provided.
+- Passing `current:` (the current `Async<T>` state) makes the loading and error emissions carry the existing data, so a refetch never blanks the UI — see [UI Integration](04_ui_integration.md#anti-flickering-with-maintainstate).
+- On `watch()`, passing `key:` replaces any previous subscription started with the same key — the canonical way to re-watch with new arguments. For example, if the app later grows a filtered query:
+
+```dart
+void selectFilter(TodoFilter filter) {
+  watch(
+    _mediator.watchTodos(filter: filter),
+    key: #todos,             // Cancels and replaces the previous #todos watch
+    current: state.todos,    // Loading/error emissions keep the current list
+    onState: (asyncTodos) => setState(state.copyWith(todos: asyncTodos)),
+  );
+}
+```
 
 When a user adds a todo, the flow is:
-1. UI calls `viewModel.addTodo(title)`
-2. ViewModel calls `mediator.addTodo(title)` which dispatches the command
-3. Mediator routes to `AddTodoCommandHandler`
+1. UI calls `context.read<TodoViewModel>().addTodo(title)`
+2. ViewModel calls `_mediator.addTodo(title: title)` which dispatches the command
+3. Mediator routes to `AddTodoHandler`
 4. Handler calls `repository.addTodo(title)`
 5. Repository emits new todo list through its stream
 6. ViewModel's `watch` callback receives the update
 7. UI rebuilds with new todo list
 
-State immutability ensures predictable behavior — the `copyWith` pattern creates new state objects rather than mutating existing ones. The `Async<List<Todo>>` wrapper handles loading, data, and error states automatically, eliminating manual state checking in the UI. Events provide a channel for one-time occurrences like clearing the input field or showing a snackbar, separate from persistent state.
+State immutability ensures predictable behavior — the `copyWith` pattern creates new state objects rather than mutating existing ones. The `Async<List<Todo>>` wrapper makes loading, data, and error states explicit — and because it's sealed, the UI can pattern-match on it exhaustively. Events provide a channel for one-time occurrences like clearing the input field or showing a snackbar, separate from persistent state.
 
 ### Building the UI
 
-The UI layer observes state changes and dispatches user interactions to the ViewModel. The `AsyncBuilder` widget automatically renders appropriate UI based on whether data is loading, available, or errored. Event handling lives on the `ViewModelProvider.withEvents` call in `main`, keeping event side-effects co-located with provision.
+The UI layer observes state changes and dispatches user interactions to the ViewModel. Following Flutter best practices, the screen is split into small, focused widget classes rather than one large build method: `TodoScreen` owns the `Scaffold` and provides the ViewModel, `_TodoComposer` owns the text input, `_TodoList` renders the async list, and `_TodoTile` renders a single row.
+
+`TodoScreen` injects the ViewModel with `ViewModelProvider.withEventListener`, placed just below the `Scaffold`. This ties the ViewModel's lifecycle to the screen, and co-locates event side-effects — the snackbar notifications — with the screen they concern. The `mediator` it reads is a global declared in `lib/mediator.dart`, completed in the final section of this guide.
 
 Create `lib/presentation/todo_screen.dart`:
 
@@ -324,17 +385,54 @@ Create `lib/presentation/todo_screen.dart`:
 import 'package:flutter/material.dart';
 import 'package:chassis_flutter/chassis_flutter.dart';
 import '../data/todo.dart';
-import '../documentation/todo_view_model.dart';
+import '../mediator.dart' show mediator;
+import 'todo_view_model.dart';
 
-// We assume the ViewModel is injected above this widget
-class TodoScreen extends StatefulWidget {
-  const TodoScreen({Key? key}) : super(key: key);
+class TodoScreen extends StatelessWidget {
+  const TodoScreen({super.key});
 
   @override
-  State<TodoScreen> createState() => _TodoScreenState();
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Todo List')),
+      // The provider sits below the Scaffold: the ViewModel lives exactly as
+      // long as this screen, and event side-effects stay next to the UI they
+      // affect instead of leaking into main.dart.
+      body: ViewModelProvider.withEventListener<TodoViewModel, TodoEvent>(
+        create: (_) => TodoViewModel(mediator),
+        onEvent: (context, viewModel, event) {
+          switch (event) {
+            case TodoAddedEvent():
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Todo added')),
+              );
+            case TodoToggleFailedEvent():
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Could not update todo')),
+              );
+          }
+        },
+        child: const Column(
+          children: [
+            _TodoComposer(),
+            Expanded(child: _TodoList()),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
-class _TodoScreenState extends State<TodoScreen> {
+// Stateful only because it owns the TextEditingController. It never watches
+// the ViewModel, so it doesn't rebuild when the todo list changes.
+class _TodoComposer extends StatefulWidget {
+  const _TodoComposer();
+
+  @override
+  State<_TodoComposer> createState() => _TodoComposerState();
+}
+
+class _TodoComposerState extends State<_TodoComposer> {
   final _textController = TextEditingController();
 
   @override
@@ -343,128 +441,144 @@ class _TodoScreenState extends State<TodoScreen> {
     super.dispose();
   }
 
+  void _submit() {
+    final title = _textController.text.trim();
+    if (title.isEmpty) return;
+    context.read<TodoViewModel>().addTodo(title);
+    _textController.clear();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final viewModel = context.watch<TodoViewModel>();
-
-    return Scaffold(
-      appBar: AppBar(title: const Text('Todo List')),
-      body: Column(
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Row(
         children: [
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _textController,
-                    decoration: const InputDecoration(
-                      hintText: 'Enter todo title',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                ElevatedButton(
-                  onPressed: () {
-                    final title = _textController.text.trim();
-                    if (title.isNotEmpty) {
-                      viewModel.addTodo(title);
-                    }
-                  },
-                  child: const Text('Add'),
-                ),
-              ],
+          Expanded(
+            child: TextField(
+              controller: _textController,
+              decoration: const InputDecoration(
+                hintText: 'Enter todo title',
+                border: OutlineInputBorder(),
+              ),
+              onSubmitted: (_) => _submit(),
             ),
           ),
-          Expanded(
-            child: AsyncBuilder<List<Todo>>(
-              state: viewModel.state.todos,
-              builder: (context, todos) {
-                if (todos.isEmpty) {
-                  return const Center(
-                    child: Text('No todos yet. Add one above!'),
-                  );
-                }
-
-                return ListView.builder(
-                  itemCount: todos.length,
-                  itemBuilder: (context, index) {
-                    final todo = todos[index];
-                    return ListTile(
-                      leading: Checkbox(
-                        value: todo.isCompleted,
-                        onChanged: (_) => viewModel.toggleTodo(todo.id),
-                      ),
-                      title: Text(
-                        todo.title,
-                        style: TextStyle(
-                          decoration: todo.isCompleted
-                              ? TextDecoration.lineThrough
-                              : null,
-                        ),
-                      ),
-                    );
-                  },
-                );
-              },
-              loadingBuilder: (context) => const Center(
-                child: CircularProgressIndicator(),
-              ),
-              errorBuilder: (context, error) => Center(
-                child: Text('Error: $error'),
-              ),
-            ),
+          const SizedBox(width: 8),
+          ElevatedButton(
+            onPressed: _submit,
+            child: const Text('Add'),
           ),
         ],
       ),
     );
   }
 }
+
+class _TodoList extends StatelessWidget {
+  const _TodoList();
+
+  @override
+  Widget build(BuildContext context) {
+    // select subscribes this widget to just the field it renders; when the
+    // todo list changes, only _TodoList rebuilds — not the whole screen.
+    final asyncTodos = context.select(
+      (TodoViewModel vm) => vm.state.todos,
+    );
+
+    // Async<T> is sealed, so a switch expression covers loading, error, and
+    // data exhaustively — the compiler rejects a missing case.
+    return switch (asyncTodos) {
+      AsyncLoading() => const Center(child: CircularProgressIndicator()),
+      AsyncError(:final error) => Center(child: Text('Error: $error')),
+      AsyncData(value: final todos) when todos.isEmpty => const Center(
+          child: Text('No todos yet. Add one above!'),
+        ),
+      AsyncData(value: final todos) => ListView.builder(
+          itemCount: todos.length,
+          itemBuilder: (context, index) => _TodoTile(todo: todos[index]),
+        ),
+    };
+  }
+}
+
+class _TodoTile extends StatelessWidget {
+  const _TodoTile({required this.todo});
+
+  final Todo todo;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: Checkbox(
+        value: todo.isCompleted,
+        // Callbacks use context.read to call methods without subscribing.
+        onChanged: (_) => context.read<TodoViewModel>().toggleTodo(todo.id),
+      ),
+      title: Text(
+        todo.title,
+        style: TextStyle(
+          decoration: todo.isCompleted ? TextDecoration.lineThrough : null,
+        ),
+      ),
+    );
+  }
+}
 ```
 
-The `AsyncBuilder` widget eliminates manual state checking. It automatically renders the appropriate UI based on whether data is loading, available, or errored, simplifying your build methods significantly. Event side-effects like the "Todo added" snackbar live on `ViewModelProvider.withEvents` in `main.dart` (below), keeping the screen focused on rendering and input.
+Because `Async<T>` is a sealed class, a switch expression over it is checked for exhaustiveness: the compiler forces `_TodoList` to handle `AsyncLoading`, `AsyncError`, and `AsyncData`, and pattern destructuring (`value: final todos`) extracts the payload in the same line. This inline switch is the preferred style for simple rendering like this. When you need more — keeping the previous list on screen during a refetch, for instance — reach for the `AsyncBuilder` widget and its `maintainState` support instead (see [UI Integration](04_ui_integration.md#anti-flickering-with-maintainstate)). Note the two access patterns: `context.select` subscribes a widget to exactly the field it renders, while callbacks use `context.read` to call ViewModel methods without subscribing.
+
+Splitting the screen into private widget classes pays off in rebuild scope: `_TodoComposer` never rebuilds when todos change, and `_TodoList` is the only widget subscribed to `state.todos`. The `onEvent` callback runs with the provider's own context — below the `Scaffold`, so `ScaffoldMessenger.of(context)` resolves naturally — keeping the notification logic in the same file as the screen it belongs to.
 
 ### Putting It All Together
 
-The main entry point wires together your dependency tree from the bottom up: Repository → Mediator → ViewModel → UI. This composition happens once at startup, creating the object graph that your application uses throughout its lifecycle.
+The composition root wires together your dependency tree from the bottom up: repositories have no dependencies, the Mediator depends on repositories, and screens create their own ViewModels from the global mediator. This composition happens once at startup, creating the object graph that your application uses throughout its lifecycle.
 
-Create `lib/main.dart`:
+Everything mediator-related — the `@ChassisApp` annotation, the generated import, the global `mediator`, and `initializeDependencies()` — lives in `lib/mediator.dart` rather than in `main.dart`. Screens need to reach the global, and importing `main.dart` from the presentation layer would be a backward import — presentation depending on the entry point, creating a cycle. With the dedicated file the import graph stays one-way: `main.dart` → screens → `mediator.dart`.
+
+Complete `lib/mediator.dart` (started in [Accessing business logic](#accessing-business-logic) above):
 
 ```dart
-import 'package:flutter/material.dart';
-import 'package:chassis_flutter/chassis_flutter.dart';
-import '../documentation/data/todo_repository.dart';
-import '../documentation/app/app_mediator.dart';
-import '../documentation/presentation/todo_screen.dart';
-import '../documentation/presentation/todo_view_model.dart';
+@ChassisApp(mediatorName: 'AppMediator')
+library;
+
+import 'package:chassis/chassis.dart';
+
+// The generator collects every @chassisHandler reachable from this
+// library's imports — this import is what makes the handlers visible.
+import 'domain/todo_handlers.dart';
+
+import 'data/todo_repository.dart';
+import 'mediator.chassis.dart';
 
 // We declare the mediator globally so all our app can access it
 late final AppMediator mediator;
 
 void initializeDependencies() {
-  // Initialize dependencies
+  // The generated constructor is the dependency manifest: it requires
+  // exactly the repositories the handlers need.
   final todoRepository = InMemoryTodoRepository();
-  mediator = AppMediator(todoRepository: todoRepository);
+  mediator = AppMediator(todoRepository: todoRepository)
+    // Traces every dispatch with its params, outcome, and duration
+    ..addMiddleware(LoggingMiddleware());
 }
+```
+
+`lib/main.dart` is now nothing but the entry point:
+
+```dart
+import 'package:flutter/material.dart';
+
+import 'mediator.dart';
+import 'presentation/todo_screen.dart';
 
 void main() {
   initializeDependencies();
 
   runApp(
-    MaterialApp(
+    const MaterialApp(
       title: 'Todo List',
-      home: ViewModelProvider.withEvents<TodoViewModel, TodoEvent>(
-        create: (_) => TodoViewModel(mediator),
-        onEvent: (context, viewModel, event) {
-          if (event is TodoAddedEvent) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Todo added')),
-            );
-          }
-        },
-        child: const TodoScreen(),
-      ),
+      home: TodoScreen(),
     ),
   );
 }
@@ -472,26 +586,34 @@ void main() {
 
 The dependency tree flows naturally — repositories have no dependencies, the Mediator depends on repositories, ViewModels depend on the Mediator, and widgets depend on ViewModels. This unidirectional dependency graph makes the application easy to reason about and test.
 
+Run the app:
+
+```bash
+flutter run
+```
+
+You should see the empty state — "No todos yet. Add one above!" — immediately, with no spinner: the repository yields its (empty) snapshot as soon as the ViewModel subscribes. Type a title, press Add, and the todo appears in the list with a "Todo added" snackbar; tapping the checkbox strikes it through. If you see a `mediator.chassis.dart` import error instead, re-run the generator from the previous section.
+
 ## What You Just Built
 
 You've created a complete Chassis application with clear separation of concerns. The architecture flows naturally through distinct layers:
 
 - **Repository layer**: Defines data operations through interfaces, implemented by concrete classes
 - **Handler layer**: Coordinates business logic, translating messages into repository calls
-- **Mediator layer**: Routes messages to handlers, provides type-safe API through extensions
+- **Mediator layer**: Generated by `chassis_builder` — routes messages to handlers and provides a type-safe API through typed methods
 - **ViewModel layer**: Manages UI state reactively, wrapping async operations in `Async<T>`
 - **UI layer**: Observes state and dispatches user actions, automatically handling loading/error states
 
 The key benefits of this architecture:
 - **Testability**: Each layer can be tested in isolation with mocks
-- **Discoverability**: Extension methods make available operations autocomplete-friendly
+- **Discoverability**: Typed mediator methods make available operations autocomplete-friendly
 - **Maintainability**: Business logic lives in handlers, not spread across widgets
 - **Scalability**: Adding features follows the same pattern, maintaining consistency
 
-Your application's capabilities are explicitly declared — to understand what the todo list can do, examine [todo_handlers.dart](lib/domain/todo_handlers.dart) to see `WatchTodosQuery`, `AddTodoCommand`, and `ToggleTodoCommand`. This explicit catalog of operations helps new team members quickly understand the system.
+Your application's capabilities are explicitly declared — to understand what the todo list can do, examine `lib/domain/todo_handlers.dart` to see `WatchTodosQuery`, `AddTodoCommand`, and `ToggleTodoCommand`. This explicit catalog of operations helps new team members quickly understand the system.
 
 ## Next Steps
 
-This manual approach exposed the framework's internals, showing exactly how messages flow from UI to repository and back. You now understand what the `@generateQueryHandler` and `@generateCommandHandler` annotations automate. In production applications, code generation handles the repetitive handler creation and Mediator wiring, reducing this example to approximately 50 lines of code.
+Notice how little wiring you maintain: the `@chassisHandler` annotations and a single `@ChassisApp` declaration. Everything between them — handler registrations, dependency injection, typed methods — is derived by `chassis_builder`, and every wiring mistake it can detect fails the build instead of surfacing at runtime.
 
-For deeper understanding of the architectural principles guiding these patterns, explore [Core Architecture](01_core_architecture.md). To learn about testing strategies and when to implement handlers manually versus generating them, see [Business Logic](02_business_logic.md). To eliminate the boilerplate you just wrote, discover [Code Generation](03_code_generation.md). To learn advanced UI patterns like anti-flickering and event handling, proceed to [UI Integration](04_ui_integration.md).
+For deeper understanding of the architectural principles guiding these patterns, explore [Core Architecture](01_core_architecture.md). To learn testing strategies for handlers, see [Business Logic](02_business_logic.md). To go further with the generator — build-time guarantees, and the `@chassisModule` system that shares feature packages across applications — see [Code Generation](03_code_generation.md). To learn advanced UI patterns like anti-flickering and event handling, proceed to [UI Integration](04_ui_integration.md).

@@ -1,12 +1,24 @@
 import 'command.dart';
-import 'query.dart';
+import 'exceptions.dart';
 import 'middleware.dart';
+import 'query.dart';
 
 /// A mediator that coordinates between commands, queries, and their handlers.
 ///
 /// The mediator implements the Mediator pattern, providing a centralized way to
 /// handle commands and queries without direct coupling between senders and receivers.
 /// It maintains registries of handlers and routes requests to the appropriate handlers.
+///
+/// Registration and dispatch throw [ChassisException] subtypes on wiring
+/// mistakes ([DuplicateHandlerException], [HandlerNotRegisteredException]) —
+/// identically in debug and release builds.
+///
+/// Dispatch is keyed by the **exact runtime type** of the message: a
+/// subclass of a registered command/query is not routed to the parent's
+/// handler, and generic message classes are unsupported (their type
+/// arguments would make the runtime key ambiguous — `chassis_builder`
+/// rejects them at build time). Declare one concrete, `final` message class
+/// per operation.
 ///
 /// Example usage:
 /// ```dart
@@ -27,9 +39,11 @@ import 'middleware.dart';
 /// final newUser = await mediator.run(CreateUserCommand(name: 'John', email: 'john@example.com'));
 /// ```
 class Mediator {
-  final Map<Type, ReadHandler> _queryHandlers = {};
-  final Map<Type, WatchHandler> _streamHandlers = {};
-  final Map<Type, CommandHandler> _commandHandlers = {};
+  final Map<Type, ReadHandler<ReadQuery<Object?>, Object?>> _queryHandlers = {};
+  final Map<Type, WatchHandler<WatchQuery<Object?>, Object?>> _streamHandlers =
+      {};
+  final Map<Type, CommandHandler<Command<Object?>, Object?>> _commandHandlers =
+      {};
 
   final List<MediatorMiddleware> _middlewares = [];
 
@@ -39,7 +53,8 @@ class Mediator {
   /// [WatchHandler] for streaming queries. The mediator will automatically
   /// determine the handler type and register it in the appropriate registry.
   ///
-  /// Throws a [StateError] if a handler is already registered for the same query type.
+  /// Throws a [DuplicateHandlerException] if a handler is already registered
+  /// for the same query type.
   ///
   /// Example:
   /// ```dart
@@ -50,30 +65,34 @@ class Mediator {
   void registerQueryHandler<Q extends Query<T>, T>(
     QueryHandler<Q, T> handler,
   ) {
-    if (handler case ReadHandler handler) {
-      assert(() {
-        if (_queryHandlers.containsKey(Q)) {
-          throw StateError('ReadHandler already registered for $Q');
+    switch (handler) {
+      case final ReadHandler<ReadQuery<Object?>, Object?> handler:
+        final existing = _queryHandlers[Q];
+        if (existing != null) {
+          throw DuplicateHandlerException(
+            requestType: Q,
+            existingHandler: existing.runtimeType,
+            newHandler: handler.runtimeType,
+          );
         }
-        return true;
-      }());
-      _queryHandlers[Q] = handler;
-    }
-
-    if (handler case WatchHandler handler) {
-      assert(() {
-        if (_streamHandlers.containsKey(Q)) {
-          throw StateError('WatchHandler already registered for $Q');
+        _queryHandlers[Q] = handler;
+      case final WatchHandler<WatchQuery<Object?>, Object?> handler:
+        final existing = _streamHandlers[Q];
+        if (existing != null) {
+          throw DuplicateHandlerException(
+            requestType: Q,
+            existingHandler: existing.runtimeType,
+            newHandler: handler.runtimeType,
+          );
         }
-        return true;
-      }());
-      _streamHandlers[Q] = handler;
+        _streamHandlers[Q] = handler;
     }
   }
 
   /// Registers a command handler for the specified command type.
   ///
-  /// Throws a [StateError] if a handler is already registered for the same command type.
+  /// Throws a [DuplicateHandlerException] if a handler is already registered
+  /// for the same command type.
   ///
   /// Example:
   /// ```dart
@@ -84,13 +103,14 @@ class Mediator {
   void registerCommandHandler<C extends Command<T>, T>(
     CommandHandler<C, T> handler,
   ) {
-    assert(() {
-      if (_commandHandlers.containsKey(C)) {
-        throw StateError('CommandHandler already registered for $C');
-      }
-      return true;
-    }());
-
+    final existing = _commandHandlers[C];
+    if (existing != null) {
+      throw DuplicateHandlerException(
+        requestType: C,
+        existingHandler: existing.runtimeType,
+        newHandler: handler.runtimeType,
+      );
+    }
     _commandHandlers[C] = handler;
   }
 
@@ -101,34 +121,11 @@ class Mediator {
     _middlewares.add(middleware);
   }
 
-  /// Merges two mediators into a new one.
-  ///
-  /// The returned mediator will contain the union of handlers from both mediators.
-  /// Middlewares from both mediators are also combined.
-  Mediator operator +(Mediator other) {
-    final combined = Mediator();
-
-    // Merge handlers
-    combined._queryHandlers.addAll(_queryHandlers);
-    combined._queryHandlers.addAll(other._queryHandlers);
-
-    combined._streamHandlers.addAll(_streamHandlers);
-    combined._streamHandlers.addAll(other._streamHandlers);
-
-    combined._commandHandlers.addAll(_commandHandlers);
-    combined._commandHandlers.addAll(other._commandHandlers);
-
-    // Merge middlewares
-    combined._middlewares.addAll(_middlewares);
-    combined._middlewares.addAll(other._middlewares);
-
-    return combined;
-  }
-
   /// Executes a read query and returns the result.
   ///
   /// Looks up the appropriate [ReadHandler] for the query type and executes it.
-  /// Throws an [Exception] if no handler is registered for the query type.
+  /// Throws a [HandlerNotRegisteredException] if no handler is registered for
+  /// the query type.
   ///
   /// Example:
   /// ```dart
@@ -138,7 +135,12 @@ class Mediator {
     NextRead<ReadQuery<T>, T> execution = (q) {
       final handler = _queryHandlers[q.runtimeType];
       if (handler == null) {
-        throw Exception('No ReadHandler registered for ${q.runtimeType}');
+        throw HandlerNotRegisteredException(
+          requestType: q.runtimeType,
+          dispatchMethod: 'read',
+          registerMethod: 'registerQueryHandler',
+          handlerInterface: 'ReadHandler',
+        );
       }
       return handler.read(q) as Future<T>;
     };
@@ -155,7 +157,8 @@ class Mediator {
   /// Executes a watch query and returns a stream of results.
   ///
   /// Looks up the appropriate [WatchHandler] for the query type and executes it.
-  /// Throws an [Exception] if no handler is registered for the query type.
+  /// Throws a [HandlerNotRegisteredException] if no handler is registered for
+  /// the query type.
   ///
   /// Example:
   /// ```dart
@@ -166,7 +169,12 @@ class Mediator {
     NextWatch<WatchQuery<T>, T> execution = (q) {
       final handler = _streamHandlers[q.runtimeType];
       if (handler == null) {
-        throw Exception('No WatchHandler registered for ${q.runtimeType}');
+        throw HandlerNotRegisteredException(
+          requestType: q.runtimeType,
+          dispatchMethod: 'watch',
+          registerMethod: 'registerQueryHandler',
+          handlerInterface: 'WatchHandler',
+        );
       }
       return handler.watch(q) as Stream<T>;
     };
@@ -183,7 +191,8 @@ class Mediator {
   /// Executes a command and returns the result.
   ///
   /// Looks up the appropriate [CommandHandler] for the command type and executes it.
-  /// Throws an [Exception] if no handler is registered for the command type.
+  /// Throws a [HandlerNotRegisteredException] if no handler is registered for
+  /// the command type.
   ///
   /// Example:
   /// ```dart
@@ -193,7 +202,12 @@ class Mediator {
     NextRun<Command<T>, T> execution = (c) {
       final handler = _commandHandlers[c.runtimeType];
       if (handler == null) {
-        throw Exception('No CommandHandler registered for ${c.runtimeType}');
+        throw HandlerNotRegisteredException(
+          requestType: c.runtimeType,
+          dispatchMethod: 'run',
+          registerMethod: 'registerCommandHandler',
+          handlerInterface: 'CommandHandler',
+        );
       }
       return handler.run(c) as Future<T>;
     };

@@ -6,13 +6,13 @@
 /// The [Mediator] class provides a centralized way to handle commands and queries
 /// without direct coupling between components. It supports:
 /// - [Command] objects for operations that modify state
-/// - [Read] queries for one-time data retrieval
+/// - [ReadQuery] queries for one-time data retrieval
 /// - [WatchQuery] queries for streaming data that updates over time
 ///
-/// ## Result Pattern
-/// The [Result] sealed class provides a type-safe way to handle operations that
-/// might fail, with [Success] and [Failure] variants. This helps avoid exceptions
-/// in many cases and provides better error handling.
+/// ## Async Pattern
+/// The [Async] sealed class represents the state of an asynchronous operation
+/// ([AsyncData], [AsyncLoading], [AsyncError]) and is the unified model used by
+/// the UI layer to render loading, data, and error states.
 ///
 /// ## Disposal Pattern
 /// The [Disposable] mixin helps manage object lifecycles by providing a standard
@@ -38,7 +38,7 @@
 /// // Implement a command handler
 /// class CreateUserCommandHandler implements CommandHandler<CreateUserCommand, User> {
 ///   CreateUserCommandHandler(this._userRepository);
-///   final IUserRepository _userRepository;
+///   final UserRepository _userRepository;
 ///
 ///   @override
 ///   Future<User> run(CreateUserCommand command) async {
@@ -49,7 +49,7 @@
 /// // Implement a read handler
 /// class GetUserQueryHandler implements ReadHandler<GetUserQuery, User> {
 ///   GetUserQueryHandler(this._userRepository);
-///   final IUserRepository _userRepository;
+///   final UserRepository _userRepository;
 ///
 ///   @override
 ///   Future<User> read(GetUserQuery query) async {
@@ -76,6 +76,8 @@ export 'src/mediator/mediator.dart';
 export 'src/mediator/query.dart';
 export 'src/mediator/command.dart';
 export 'src/mediator/middleware.dart';
+export 'src/mediator/exceptions.dart';
+export 'src/mediator/logging_middleware.dart';
 export 'src/disposable.dart';
 export 'src/async.dart';
-export 'package:chassis/src/annotations.dart';
+export 'src/annotations.dart';

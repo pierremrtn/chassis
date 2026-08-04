@@ -86,9 +86,11 @@ class ViewModelProvider<T extends ViewModel<Object?, Object?>>
 
   final T? _value;
 
-  /// {@template view_model_provider_with_events}
-  /// Creates a [ViewModelProvider] that also subscribes to the view model's
-  /// events for the lifetime of the provider.
+  /// {@template view_model_provider_with_event_listener}
+  /// Creates a [ViewModelProvider] that also listens to the view model's
+  /// events for the lifetime of the provider — the fusion of a
+  /// [ViewModelProvider] and an `EventListener` for the common case where
+  /// the provision site is also the right place to handle events.
   ///
   /// The [onEvent] callback receives the provider's [BuildContext], the view
   /// model instance, and the emitted event. The context sits *above* the
@@ -100,7 +102,7 @@ class ViewModelProvider<T extends ViewModel<Object?, Object?>>
   /// is lazy) so that events emitted during construction are not missed.
   ///
   /// ```dart
-  /// ViewModelProvider.withEvents<UserViewModel, UserEvent>(
+  /// ViewModelProvider.withEventListener<UserViewModel, UserEvent>(
   ///   create: (context) => UserViewModel(mediator),
   ///   onEvent: (context, vm, event) {
   ///     switch (event) {
@@ -115,13 +117,13 @@ class ViewModelProvider<T extends ViewModel<Object?, Object?>>
   /// ```
   /// {@endtemplate}
   static SingleChildWidget
-      withEvents<T extends ViewModel<Object?, E>, E>({
+      withEventListener<T extends ViewModel<Object?, E>, E>({
     Key? key,
     required T Function(BuildContext context) create,
     required void Function(BuildContext context, T viewModel, E event) onEvent,
     Widget? child,
   }) {
-    return _ViewModelEventsProvider<T, E>(
+    return _ViewModelEventListenerProvider<T, E>(
       key: key,
       create: create,
       onEvent: onEvent,
@@ -203,9 +205,33 @@ class ViewModelProvider<T extends ViewModel<Object?, Object?>>
   }
 }
 
-class _ViewModelEventsProvider<T extends ViewModel<Object?, E>, E>
+/// {@template multi_view_model_provider}
+/// Merges multiple [ViewModelProvider] widgets into one widget tree,
+/// avoiding the nesting that providing several view models would otherwise
+/// require.
+///
+/// ```dart
+/// MultiViewModelProvider(
+///   providers: [
+///     ViewModelProvider(create: (context) => UserViewModel(mediator)),
+///     ViewModelProvider(create: (context) => CartViewModel(mediator)),
+///   ],
+///   child: const HomeScreen(),
+/// );
+/// ```
+/// {@endtemplate}
+class MultiViewModelProvider extends MultiProvider {
+  /// {@macro multi_view_model_provider}
+  MultiViewModelProvider({
+    super.key,
+    required super.providers,
+    required Widget super.child,
+  });
+}
+
+class _ViewModelEventListenerProvider<T extends ViewModel<Object?, E>, E>
     extends SingleChildStatefulWidget {
-  const _ViewModelEventsProvider({
+  const _ViewModelEventListenerProvider({
     super.key,
     required this.create,
     required this.onEvent,
@@ -216,12 +242,12 @@ class _ViewModelEventsProvider<T extends ViewModel<Object?, E>, E>
   final void Function(BuildContext context, T viewModel, E event) onEvent;
 
   @override
-  State<_ViewModelEventsProvider<T, E>> createState() =>
-      _ViewModelEventsProviderState<T, E>();
+  State<_ViewModelEventListenerProvider<T, E>> createState() =>
+      _ViewModelEventListenerProviderState<T, E>();
 }
 
-class _ViewModelEventsProviderState<T extends ViewModel<Object?, E>, E>
-    extends SingleChildState<_ViewModelEventsProvider<T, E>> {
+class _ViewModelEventListenerProviderState<T extends ViewModel<Object?, E>, E>
+    extends SingleChildState<_ViewModelEventListenerProvider<T, E>> {
   late final T _viewModel;
   late final StreamSubscription<E> _subscription;
 

@@ -19,9 +19,9 @@ class GreetingRepository implements IGreetingRepository {
   Stream<String> getGreetingStream() async* {
     // Simulate a stream that emits greetings periodically
     yield "Hello Chassis";
-    await Future.delayed(const Duration(seconds: 1));
+    await Future<void>.delayed(const Duration(seconds: 1));
     yield "Hello Chassis - Updated!";
-    await Future.delayed(const Duration(seconds: 1));
+    await Future<void>.delayed(const Duration(seconds: 1));
     yield "Hello Chassis - Final!";
   }
 }
@@ -73,12 +73,11 @@ Future<void> main() async {
   mediator.registerQueryHandler(WatchGreetingsQueryHandler(greetingRepository));
 
   // Watch the greeting stream
-  final subscription =
-      mediator.watch(WatchGreetingsQuery()).listen((greeting) {
+  final subscription = mediator.watch(WatchGreetingsQuery()).listen((greeting) {
     print(greeting);
   });
 
   // Wait for a few seconds to see the stream updates
-  await Future.delayed(const Duration(seconds: 3));
+  await Future<void>.delayed(const Duration(seconds: 3));
   await subscription.cancel();
 }
