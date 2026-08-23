@@ -1,5 +1,5 @@
 name: chassis_builder
-description: Code generation for the chassis architectural framework — generates module mediator interfaces and the app's concrete mediator from @chassisHandler classes.
+description: Code generation for the chassis architectural framework — generates the app's concrete mediator, registering every @chassisHandler class in its constructor.
 version: 1.0.0
 repository: https://github.com/pierremrtn/chassis
 homepage: https://affordant.gitbook.io/chassis/
@@ -10,12 +10,15 @@ topics:
   - architecture
 
 environment:
-  sdk: ^3.6.2
+  sdk: ^3.13.0
 
 resolution: workspace
 
 dependencies:
-  analyzer: ">=12.0.0 <15.0.0"
+  # 13.3.0 is the verified floor for parsing Dart 3.13 primary constructors
+  # (12.x gates the feature behind an experiment flag and fails to resolve
+  # any source using them, including package:chassis itself).
+  analyzer: ">=13.3.0 <15.0.0"
   build: ^4.0.0
   source_gen: ^4.0.0
   code_builder: ^4.10.0

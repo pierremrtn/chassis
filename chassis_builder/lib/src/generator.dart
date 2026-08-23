@@ -1,7 +1,5 @@
 import 'dart:async';
 
-import 'package:analyzer/dart/ast/ast.dart' show NamedType, SimpleIdentifier;
-import 'package:analyzer/dart/ast/visitor.dart';
 import 'package:analyzer/dart/element/element.dart';
 import 'package:analyzer/dart/element/nullability_suffix.dart';
 import 'package:analyzer/dart/element/type.dart';
@@ -9,28 +7,44 @@ import 'package:build/build.dart';
 import 'package:code_builder/code_builder.dart' hide FunctionType, RecordType;
 import 'package:source_gen/source_gen.dart';
 
-const _handlerChecker =
-    TypeChecker.typeNamedLiterally('ChassisHandler', inPackage: 'chassis');
-const _moduleChecker =
-    TypeChecker.typeNamedLiterally('ChassisModule', inPackage: 'chassis');
-const _appChecker =
-    TypeChecker.typeNamedLiterally('ChassisApp', inPackage: 'chassis');
+const _handlerChecker = TypeChecker.typeNamedLiterally(
+  'ChassisHandler',
+  inPackage: 'chassis',
+);
+const _moduleChecker = TypeChecker.typeNamedLiterally(
+  'ChassisModule',
+  inPackage: 'chassis',
+);
+const _appChecker = TypeChecker.typeNamedLiterally(
+  'ChassisApp',
+  inPackage: 'chassis',
+);
+const _mediatorChecker = TypeChecker.typeNamedLiterally(
+  'Mediator',
+  inPackage: 'chassis',
+);
+const _unhandledMessageChecker = TypeChecker.typeNamedLiterally(
+  'UnhandledMessage',
+  inPackage: 'chassis',
+);
 
-/// Generates chassis mediator code for libraries annotated with `@ChassisApp`
-/// (on the library directive) or containing a class annotated with
-/// `@chassisModule`.
+/// Generates the concrete app mediator for libraries annotated with
+/// `@ChassisApp` (on the library directive).
 ///
-/// - `@chassisModule` on `AuthModule` → `abstract interface class
-///   AuthMediator` with one typed method per handler of the module's package
-///   reachable from the annotated library.
-/// - `@ChassisApp(modules: [...])` on a library → a concrete mediator
-///   extending `Mediator` and implementing every module interface. All
-///   handlers are registered in the constructor, and every generated method
-///   dispatches through `run`/`read`/`watch`, so middlewares always apply.
+/// The generated class extends `Mediator`, takes every handler dependency as
+/// a required named constructor parameter (deduplicated by type), and
+/// registers all handlers in its constructor. Dispatch happens through the
+/// inherited `run`/`read`/`watch` — no per-message methods are generated.
 ///
-/// Any wiring mistake (missing constructor, unknown module, conflicting
-/// method signatures, ...) fails the build with an actionable error. This
-/// generator never emits a partial mediator.
+/// `@chassisModule` classes generate nothing: they only mark a package's
+/// handler barrel so `@ChassisApp(modules: [...])` can discover handlers in
+/// other packages (handler discovery is scoped to each root library's own
+/// package). The generator still validates module libraries so wiring
+/// mistakes fail the module's own build.
+///
+/// Any wiring mistake (missing constructor, unknown module, a reachable
+/// message without a handler, ...) fails the build with an actionable error.
+/// This generator never emits a partial mediator.
 class ChassisGenerator extends Generator {
   const ChassisGenerator();
 
@@ -40,7 +54,7 @@ class ChassisGenerator extends Generator {
 
     for (final classElement in library.classes) {
       if (_moduleChecker.hasAnnotationOfExact(classElement)) {
-        specs.add(_generateModuleInterface(classElement));
+        _validateModule(classElement);
       }
       if (_appChecker.hasAnnotationOfExact(classElement)) {
         throw InvalidGenerationSourceError(
@@ -56,10 +70,9 @@ class ChassisGenerator extends Generator {
 
     final appAnnotation = _appChecker.firstAnnotationOfExact(library.element);
     if (appAnnotation != null) {
-      specs.add(_generateAppMediator(
-        library.element,
-        ConstantReader(appAnnotation),
-      ));
+      specs.add(
+        _generateAppMediator(library.element, ConstantReader(appAnnotation)),
+      );
     }
 
     if (specs.isEmpty) return null;
@@ -69,19 +82,17 @@ class ChassisGenerator extends Generator {
     return '$emitted';
   }
 
-  // --- Module interface generation ---
+  // --- Module validation ---
 
-  Class _generateModuleInterface(ClassElement moduleClass) {
-    if (moduleClass.isPrivate) {
-      throw InvalidGenerationSourceError(
-        '${moduleClass.name} is annotated with @chassisModule but is '
-        'private. The generated app mediator implements the module '
-        'interface from another file, so module classes must be public.',
-        element: moduleClass,
-      );
-    }
-    final handlers = _collectHandlers(moduleClass.library);
-    if (handlers.isEmpty) {
+  /// Validates a `@chassisModule` declaration without generating anything.
+  ///
+  /// Modules exist for cross-package handler discovery only: the app-side
+  /// generator walks the module's import graph (scoped to the module's
+  /// package) to find its handlers. Validating here gives the module's own
+  /// build early feedback on wiring mistakes.
+  void _validateModule(ClassElement moduleClass) {
+    final scan = _scanLibrary(moduleClass.library);
+    if (scan.handlers.isEmpty) {
       throw InvalidGenerationSourceError(
         'No @chassisHandler class is reachable from the library declaring '
         '${moduleClass.name}. A chassis module must be declared in a library '
@@ -90,36 +101,15 @@ class ChassisGenerator extends Generator {
         element: moduleClass,
       );
     }
-
-    final operations = _toOperations(moduleClass, handlers);
-
-    return Class(
-      (c) => c
-        ..name = _interfaceNameFor(moduleClass)
-        ..abstract = true
-        ..modifier = ClassModifier.interface
-        ..docs.add(
-          '/// Typed mediator interface of the `${moduleClass.name}` module.\n'
-          '///\n'
-          '/// Implemented by the app mediator generated from '
-          '`@ChassisApp(modules: [${moduleClass.name}])`.',
-        )
-        ..methods.addAll(operations.map(
-          (op) => Method(
-            (m) => m
-              ..name = op.methodName
-              ..returns = op.methodReturnType
-              ..requiredParameters.addAll(op.positionalParameters)
-              ..optionalParameters.addAll(op.namedAndOptionalParameters),
-          ),
-        )),
-    );
+    _toOperations(moduleClass, scan.handlers);
   }
 
   // --- App mediator generation ---
 
   Class _generateAppMediator(
-      LibraryElement appLibrary, ConstantReader annotation) {
+    LibraryElement appLibrary,
+    ConstantReader annotation,
+  ) {
     final mediatorName = annotation.read('mediatorName').stringValue;
 
     // Resolve declared modules.
@@ -139,16 +129,14 @@ class ChassisGenerator extends Generator {
       moduleClasses.add(element);
     }
 
-    // Collect handlers: per module (within the module's package), then the
-    // app's own handlers (within the app's package).
+    // Collect handlers and messages: per module (within the module's
+    // package), then the app's own (within the app's package).
     final operations = <_Operation>[];
     final seenMessageTypes = <String, _Operation>{};
-    final seenSignatures = <String, _Operation>{};
-    final seenMethodNames = <String, _Operation>{};
+    final scans = <_LibraryScan>[];
 
-    void addOperations(Element owner, List<ClassElement> handlers,
-        {ClassElement? module}) {
-      for (final op in _toOperations(owner, handlers, module: module)) {
+    void addOperations(Element owner, List<ClassElement> handlers) {
+      for (final op in _toOperations(owner, handlers)) {
         final messageKey = _elementKey(op.messageType.element);
         final duplicateMessage = seenMessageTypes[messageKey];
         if (duplicateMessage != null) {
@@ -161,44 +149,28 @@ class ChassisGenerator extends Generator {
           );
         }
         seenMessageTypes[messageKey] = op;
-
-        final duplicateSignature = seenSignatures[op.signatureKey];
-        if (duplicateSignature != null) {
-          throw InvalidGenerationSourceError(
-            '${duplicateSignature.handlerDescription} and '
-            '${op.handlerDescription} both produce the method '
-            '`${op.methodName}` with an identical signature. The type system '
-            'would silently satisfy both with one implementation, so chassis '
-            'refuses this composition: rename one message class to '
-            'disambiguate.',
-            element: appLibrary,
-          );
-        }
-        seenSignatures[op.signatureKey] = op;
-
-        // Same derived method name with *different* signatures across the app
-        // and its modules would emit two methods with one name — invalid
-        // Dart. The per-owner check in _toOperations cannot see this.
-        final duplicateName = seenMethodNames[op.methodName];
-        if (duplicateName != null) {
-          throw InvalidGenerationSourceError(
-            '${duplicateName.handlerDescription} and '
-            '${op.handlerDescription} both derive the method name '
-            '`${op.methodName}` from their message. Rename one message class '
-            'to disambiguate.',
-            element: appLibrary,
-          );
-        }
-        seenMethodNames[op.methodName] = op;
-
         operations.add(op);
       }
     }
 
     for (final module in moduleClasses) {
-      addOperations(module, _collectHandlers(module.library), module: module);
+      final scan = _scanLibrary(module.library);
+      if (scan.handlers.isEmpty) {
+        throw InvalidGenerationSourceError(
+          'No @chassisHandler class is reachable from the library declaring '
+          '${module.name} (the module listed in @ChassisApp on '
+          '${appLibrary.uri}). A chassis module must be declared in a '
+          'library that (transitively) imports every handler of the package '
+          '— typically the package barrel.',
+          element: appLibrary,
+        );
+      }
+      scans.add(scan);
+      addOperations(module, scan.handlers);
     }
-    addOperations(appLibrary, _collectHandlers(appLibrary));
+    final appScan = _scanLibrary(appLibrary);
+    scans.add(appScan);
+    addOperations(appLibrary, appScan.handlers);
 
     if (operations.isEmpty) {
       throw InvalidGenerationSourceError(
@@ -209,6 +181,14 @@ class ChassisGenerator extends Generator {
         element: appLibrary,
       );
     }
+
+    // Handlers found outside the app package and its declared modules are
+    // unreachable for registration: warn, don't silently ignore them.
+    _warnOnUncoveredHandlers(appLibrary, moduleClasses, scans, mediatorName);
+
+    // A reachable concrete message without a handler could only throw
+    // HandlerNotRegisteredError at runtime — fail the build instead.
+    _rejectUnhandledMessages(appLibrary, scans, seenMessageTypes);
 
     // Deduplicate constructor dependencies across all handlers, keyed by
     // resolved element so same-named types from different packages stay
@@ -237,50 +217,40 @@ class ChassisGenerator extends Generator {
       (c) => c
         ..name = mediatorName
         ..extend = refer('Mediator', 'package:chassis/chassis.dart')
-        ..implements.addAll(moduleClasses.map(
-          (m) => refer(_interfaceNameFor(m), _generatedUriFor(m)),
-        ))
         ..docs.add(
           '/// Concrete mediator generated from the `@ChassisApp` library\n'
           '/// `${appLibrary.uri}`.\n'
           '///\n'
-          '/// All handlers are registered in the constructor; every method '
-          'dispatches\n/// through the mediator, so middlewares always '
-          'apply.',
+          '/// Registers every reachable handler in its constructor. '
+          'Dispatch messages\n'
+          '/// through the inherited `run`/`read`/`watch`; middlewares '
+          'always apply.',
         )
-        ..constructors.add(Constructor(
-          (ctor) => ctor
-            ..optionalParameters.addAll(
-              dependencies.values.map(
-                (dep) => Parameter(
-                  (p) => p
-                    ..name = dep.paramName
-                    ..type = _referType(dep.type)
-                    ..named = true
-                    ..required = true,
+        ..constructors.add(
+          Constructor(
+            (ctor) => ctor
+              ..optionalParameters.addAll(
+                dependencies.values.map(
+                  (dep) => Parameter(
+                    (p) => p
+                      ..name = dep.paramName
+                      ..type = _referType(dep.type)
+                      ..named = true
+                      ..required = true,
+                  ),
                 ),
-              ),
-            )
-            ..body = Block.of(operations.map(_registration)),
-        ))
-        ..methods.addAll(operations.map(
-          (op) => Method(
-            (m) => m
-              ..annotations.addAll([if (op.module != null) refer('override')])
-              ..name = op.methodName
-              ..returns = op.methodReturnType
-              ..requiredParameters.addAll(op.positionalParameters)
-              ..optionalParameters.addAll(op.namedAndOptionalParameters)
-              ..lambda = true
-              ..body = op.dispatchCall,
+              )
+              ..body = Block.of(operations.map(_registration)),
           ),
-        )),
+        ),
     );
   }
 
   Code _registration(_Operation op) {
-    final handlerRef =
-        refer(op.handler.name!, op.handler.library.uri.toString());
+    final handlerRef = refer(
+      op.handler.name!,
+      op.handler.library.uri.toString(),
+    );
     // Dependencies are passed the way the handler declares them: positional
     // parameters positionally, named parameters by their own name.
     final instance = handlerRef.newInstance(
@@ -300,36 +270,134 @@ class ChassisGenerator extends Generator {
     return refer(registerMethod).call([instance]).statement;
   }
 
-  // --- Handler discovery (import-graph walk, spike-validated) ---
+  /// Warns about `@chassisHandler` classes reachable from the walked graphs
+  /// but living in a package that is neither the app's nor a declared
+  /// module's: those handlers are never registered.
+  void _warnOnUncoveredHandlers(
+    LibraryElement appLibrary,
+    List<ClassElement> moduleClasses,
+    List<_LibraryScan> scans,
+    String mediatorName,
+  ) {
+    final coveredPackages = {
+      _packageOf(appLibrary),
+      for (final module in moduleClasses) _packageOf(module.library),
+    };
+    final warned = <String>{};
+    for (final scan in scans) {
+      for (final handler in scan.foreignHandlers) {
+        final package = handler.library.uri.pathSegments.first;
+        if (coveredPackages.contains(package)) continue;
+        if (!warned.add(_elementKey(handler))) continue;
+        log.warning(
+          '${handler.name} (${handler.library.uri}) is annotated with '
+          '@chassisHandler but belongs to package `$package`, which is '
+          'neither the app package nor a declared module — it will NOT be '
+          'registered on $mediatorName. If the package declares a '
+          '@chassisModule class, add it to @ChassisApp(modules: [...]).',
+        );
+      }
+    }
+  }
 
-  /// Collects every `@chassisHandler` class reachable from [rootLibrary]
-  /// via imports/exports, restricted to [rootLibrary]'s own package.
-  /// Deterministic order (library URI, then class name).
-  List<ClassElement> _collectHandlers(LibraryElement rootLibrary) {
+  /// Fails the build when a reachable concrete message has no handler.
+  ///
+  /// Messages annotated with `@unhandledMessage` are skipped.
+  void _rejectUnhandledMessages(
+    LibraryElement appLibrary,
+    List<_LibraryScan> scans,
+    Map<String, _Operation> handledMessages,
+  ) {
+    final orphans = <ClassElement>[];
+    final seen = <String>{};
+    for (final scan in scans) {
+      for (final message in scan.messages) {
+        final key = _elementKey(message);
+        if (handledMessages.containsKey(key)) continue;
+        if (!seen.add(key)) continue;
+        if (_unhandledMessageChecker.hasAnnotationOfExact(
+          message,
+          throwOnUnresolved: false,
+        )) {
+          continue;
+        }
+        orphans.add(message);
+      }
+    }
+    if (orphans.isEmpty) return;
+
+    final listing = orphans
+        .map((m) => '  - ${m.name} (${m.library.uri})')
+        .join('\n');
+    final label = orphans.length == 1
+        ? 'this message, which is'
+        : 'these messages, which are';
+    throw InvalidGenerationSourceError(
+      'No handler is registered for $label reachable from the @ChassisApp '
+      'library ${appLibrary.uri}:\n'
+      '$listing\n'
+      'Dispatching an unhandled message throws HandlerNotRegisteredError at '
+      'runtime, so chassis fails the build instead. Fix: annotate a handler '
+      'with @chassisHandler and rerun build_runner. If the message lives in '
+      "another package, declare that package's @chassisModule class in "
+      '@ChassisApp(modules: [...]). To opt out while the handler is being '
+      'written, annotate the message with @unhandledMessage.',
+      element: appLibrary,
+    );
+  }
+
+  // --- Discovery (import-graph walk, spike-validated) ---
+
+  /// Walks the import graph from [rootLibrary] and collects:
+  ///
+  /// - `handlers`: `@chassisHandler` classes in [rootLibrary]'s own package;
+  /// - `messages`: concrete `Command`/`ReadQuery`/`WatchQuery` subclasses,
+  ///   both in-package and in the export closure of directly imported
+  ///   foreign libraries (anything the package's own code can name);
+  /// - `foreignHandlers`: `@chassisHandler` classes found outside the
+  ///   package (candidates for the missing-module warning).
+  ///
+  /// In-package libraries are traversed through imports and exports. A
+  /// foreign library is scanned and traversed through its exports only (its
+  /// public API); its imports are never followed. `dart:` libraries are
+  /// skipped. Deterministic order (library URI, then class name).
+  _LibraryScan _scanLibrary(LibraryElement rootLibrary) {
     final package = _packageOf(rootLibrary);
 
     final visited = <Uri>{};
     final queue = <LibraryElement>[rootLibrary];
     final handlers = <ClassElement>[];
+    final messages = <ClassElement>[];
+    final foreignHandlers = <ClassElement>[];
 
     bool inPackage(Uri uri) =>
-        uri.scheme == 'package' && uri.pathSegments.first == package ||
-        uri.scheme == 'asset' && uri.pathSegments.first == package;
+        (uri.scheme == 'package' || uri.scheme == 'asset') &&
+        uri.pathSegments.first == package;
 
     while (queue.isNotEmpty) {
       final lib = queue.removeLast();
       if (!visited.add(lib.uri)) continue;
-      if (!inPackage(lib.uri)) continue;
+      if (lib.uri.scheme == 'dart') continue;
+
+      final isOwn = inPackage(lib.uri);
 
       for (final cls in lib.classes) {
-        if (_handlerChecker.hasAnnotationOfExact(cls)) {
-          handlers.add(cls);
+        if (_handlerChecker.hasAnnotationOfExact(
+          cls,
+          throwOnUnresolved: isOwn,
+        )) {
+          (isOwn ? handlers : foreignHandlers).add(cls);
+        }
+        if (!cls.isAbstract && _isMessageClass(cls)) {
+          messages.add(cls);
         }
       }
 
       for (final fragment in lib.fragments) {
-        for (final imported in fragment.importedLibraries) {
-          queue.add(imported);
+        if (isOwn) {
+          for (final imported in fragment.importedLibraries) {
+            queue.add(imported);
+          }
         }
         for (final export in fragment.libraryExports) {
           final exported = export.exportedLibrary;
@@ -338,52 +406,65 @@ class ChassisGenerator extends Generator {
       }
     }
 
-    handlers.sort((a, b) {
-      final byUri =
-          a.library.uri.toString().compareTo(b.library.uri.toString());
+    int byUriThenName(ClassElement a, ClassElement b) {
+      final byUri = a.library.uri.toString().compareTo(
+        b.library.uri.toString(),
+      );
       return byUri != 0 ? byUri : a.name!.compareTo(b.name!);
-    });
-    return handlers;
+    }
+
+    handlers.sort(byUriThenName);
+    messages.sort(byUriThenName);
+    foreignHandlers.sort(byUriThenName);
+    return _LibraryScan(
+      handlers: handlers,
+      messages: messages,
+      foreignHandlers: foreignHandlers,
+    );
+  }
+
+  /// Whether [cls] is a chassis message class (`Command`, `ReadQuery`, or
+  /// `WatchQuery` subclass).
+  bool _isMessageClass(ClassElement cls) {
+    for (final supertype in cls.allSupertypes) {
+      final name = supertype.element.name;
+      if (name != 'Command' && name != 'ReadQuery' && name != 'WatchQuery') {
+        continue;
+      }
+      final uri = supertype.element.library.uri;
+      if (uri.scheme == 'package' && uri.pathSegments.first == 'chassis') {
+        return true;
+      }
+    }
+    return false;
   }
 
   // --- Handler analysis ---
 
-  List<_Operation> _toOperations(
-    Element owner,
-    List<ClassElement> handlers, {
-    ClassElement? module,
-  }) {
+  List<_Operation> _toOperations(Element owner, List<ClassElement> handlers) {
     final operations = <_Operation>[];
-    final methodNames = <String, _Operation>{};
+    final byMessage = <String, _Operation>{};
 
     for (final handler in handlers) {
-      final op = _analyzeHandler(handler, module: module);
+      final op = _analyzeHandler(handler);
 
-      final clash = methodNames[op.methodName];
+      final key = _elementKey(op.messageType.element);
+      final clash = byMessage[key];
       if (clash != null) {
-        if (_elementKey(clash.messageType.element) ==
-            _elementKey(op.messageType.element)) {
-          throw InvalidGenerationSourceError(
-            'Both ${clash.handlerDescription} and ${op.handlerDescription} '
-            'handle ${op.messageType.element.name}. Each command/query type '
-            'must have exactly one handler.',
-            element: owner,
-          );
-        }
         throw InvalidGenerationSourceError(
-          '${clash.handlerDescription} and ${op.handlerDescription} both '
-          'derive the method name `${op.methodName}` from their message. '
-          'Rename one message class to disambiguate.',
+          'Both ${clash.handlerDescription} and ${op.handlerDescription} '
+          'handle ${op.messageType.element.name}. Each command/query type '
+          'must have exactly one handler.',
           element: owner,
         );
       }
-      methodNames[op.methodName] = op;
+      byMessage[key] = op;
       operations.add(op);
     }
     return operations;
   }
 
-  _Operation _analyzeHandler(ClassElement handler, {ClassElement? module}) {
+  _Operation _analyzeHandler(ClassElement handler) {
     if (handler.isPrivate) {
       throw InvalidGenerationSourceError(
         '${handler.name} is annotated with @chassisHandler but is private. '
@@ -392,8 +473,11 @@ class ChassisGenerator extends Generator {
         element: handler,
       );
     }
-    // Identify which handler interface is implemented.
-    InterfaceType? handlerInterface;
+    // Identify which handler interfaces are implemented. One handler = one
+    // operation: implementing two interfaces is refused, not silently
+    // truncated. (ReadHandler + WatchHandler is already impossible: both
+    // implement the sealed QueryHandler with incompatible type arguments.)
+    final handlerInterfaces = <String, InterfaceType>{};
     for (final supertype in handler.allSupertypes) {
       final name = supertype.element.name;
       final uri = supertype.element.library.uri;
@@ -403,21 +487,28 @@ class ChassisGenerator extends Generator {
           (name == 'CommandHandler' ||
               name == 'ReadHandler' ||
               name == 'WatchHandler')) {
-        handlerInterface = supertype;
-        break;
+        handlerInterfaces[name!] = supertype;
       }
     }
-    if (handlerInterface == null) {
+    if (handlerInterfaces.isEmpty) {
       throw InvalidGenerationSourceError(
         '${handler.name} is annotated with @chassisHandler but implements '
         'none of CommandHandler, ReadHandler, or WatchHandler.',
         element: handler,
       );
     }
+    if (handlerInterfaces.length > 1) {
+      throw InvalidGenerationSourceError(
+        '${handler.name} implements both '
+        '${handlerInterfaces.keys.join(' and ')}. One handler class handles '
+        'exactly one operation — split it into two handler classes.',
+        element: handler,
+      );
+    }
+    final handlerInterface = handlerInterfaces.values.single;
 
     final typeArguments = handlerInterface.typeArguments;
     final messageType = typeArguments[0];
-    final resultType = typeArguments[1];
     if (messageType is! InterfaceType) {
       throw InvalidGenerationSourceError(
         '${handler.name} implements ${handlerInterface.element.name} with '
@@ -454,32 +545,22 @@ class ChassisGenerator extends Generator {
       );
     }
     for (final param in handlerConstructor.formalParameters) {
-      _rejectUnsupportedType(
-        param.type,
-        handler,
-        "${handler.name}'s constructor parameter `${param.name}`",
-      );
+      final what = "${handler.name}'s constructor parameter `${param.name}`";
+      _rejectUnsupportedType(param.type, handler, what);
+      _rejectPrivateType(param.type, handler, what);
+      _rejectMediatorDependency(param, handler);
     }
     final dependencies = [
       for (final param in handlerConstructor.formalParameters)
         _Dependency(param.type, name: param.name!, isNamed: param.isNamed),
     ];
 
-    // Message constructor → method parameters.
     final messageElement = messageType.element;
     if (messageElement is! ClassElement) {
       throw InvalidGenerationSourceError(
         '${handler.name}: message type ${messageElement.name} is not a '
         'class.',
         element: handler,
-      );
-    }
-    if (messageElement.isPrivate) {
-      throw InvalidGenerationSourceError(
-        '${messageElement.name} (handled by ${handler.name}) is private. '
-        'The generated mediator constructs and dispatches messages from '
-        'another file, so message classes must be public.',
-        element: messageElement,
       );
     }
     if (messageElement.typeParameters.isNotEmpty) {
@@ -491,66 +572,43 @@ class ChassisGenerator extends Generator {
         element: messageElement,
       );
     }
-    final messageConstructor = messageElement.constructors
-        .where((c) => c.name == 'new' && !c.isFactory)
-        .firstOrNull;
-    if (messageConstructor == null) {
-      throw InvalidGenerationSourceError(
-        '${messageElement.name} (handled by ${handler.name}) has no unnamed '
-        'generative constructor, so no typed mediator method can be '
-        'generated for it.',
-        element: messageElement,
-      );
-    }
-    for (final param in messageConstructor.formalParameters) {
-      _rejectUnsupportedType(
-        param.type,
-        messageElement,
-        '${messageElement.name}.${param.name} (handled by ${handler.name})',
-      );
-      _rejectNonCoreDefault(param, messageElement, handler);
-    }
 
     return _Operation(
       handler: handler,
-      module: module,
       kind: kind,
       messageType: messageType,
-      resultType: resultType,
-      messageParameters: messageConstructor.formalParameters,
       dependencies: dependencies,
-      methodName: _methodNameFor(messageElement.name!),
-      referType: _referType,
     );
   }
 
-  /// Rejects default values that reference declarations outside dart:core.
+  /// Rejects handler dependencies that would let the handler dispatch — the
+  /// `Mediator` itself, a subclass, or anything from a generated
+  /// `.chassis.dart` library.
   ///
-  /// The generated mediator repeats the message constructor's default value
-  /// verbatim, and only dart:core is in unprefixed scope in the generated
-  /// file — a default like `MyEnum.a` would emit code that does not compile.
-  void _rejectNonCoreDefault(
+  /// Handlers must not dispatch commands or queries: handler-to-handler
+  /// dispatch hides the dependency graph from constructor signatures and
+  /// re-enters the middleware chain, and the mediator does not exist yet
+  /// when the generated constructor instantiates its handlers.
+  void _rejectMediatorDependency(
     FormalParameterElement param,
-    ClassElement messageElement,
     ClassElement handler,
   ) {
-    final initializer = param.constantInitializer;
-    if (initializer == null) return;
-    final visitor = _NonCoreReferenceFinder();
-    initializer.accept(visitor);
-    final offender = visitor.firstNonCoreReference;
-    if (offender != null) {
-      throw InvalidGenerationSourceError(
-        '${messageElement.name}.${param.name} (handled by ${handler.name}) '
-        'has the default value `${param.defaultValueCode}`, which references '
-        '`${offender.name}` from ${offender.library?.uri}. The generated '
-        'mediator repeats default values verbatim with only dart:core in '
-        'scope, so a default may reference dart:core declarations only '
-        '(literals, `const Duration(...)`, `const []`, ...). Remove the '
-        'default value or express it with dart:core alone.',
-        element: messageElement,
-      );
+    final type = param.type;
+    if (type is! InterfaceType) return;
+    final uri = type.element.library.uri;
+    if (!_mediatorChecker.isAssignableFromType(type) &&
+        !uri.path.endsWith('.chassis.dart')) {
+      return;
     }
+    throw InvalidGenerationSourceError(
+      "${handler.name}'s constructor parameter `${param.name}` is typed "
+      '`${type.element.name}`, which would let the handler dispatch through '
+      'the mediator. Handlers must not dispatch commands or queries: model '
+      'the whole flow as one command whose handler composes the '
+      'repositories it needs, and share logic between handlers through an '
+      'injected service.',
+      element: handler,
+    );
   }
 
   /// Rejects function and record types (including nested in type arguments):
@@ -571,35 +629,26 @@ class ChassisGenerator extends Generator {
     }
   }
 
-  // --- Naming ---
-
-  String _interfaceNameFor(ClassElement moduleClass) {
-    final name = moduleClass.name!;
-    final base = name.endsWith('Module')
-        ? name.substring(0, name.length - 'Module'.length)
-        : name;
-    return '${base}Mediator';
-  }
-
-  /// URI of the `.chassis.dart` file generated next to [element]'s library.
-  String _generatedUriFor(ClassElement element) {
-    final uri = element.library.uri.toString();
-    return uri.replaceFirst(RegExp(r'\.dart$'), '.chassis.dart');
-  }
-
-  /// Derives the mediator method name from the *message* class name
-  /// (`CreateUserCommand` → `createUser`), never from the handler: the
-  /// message is the public concept, so renaming a handler (an implementation
-  /// detail) does not change the generated API.
-  String _methodNameFor(String messageName) {
-    var name = messageName;
-    if (name.endsWith('Query')) {
-      name = name.substring(0, name.length - 'Query'.length);
-    } else if (name.endsWith('Command')) {
-      name = name.substring(0, name.length - 'Command'.length);
+  /// Rejects private types (including nested in type arguments): the
+  /// generated mediator declares dependencies as constructor parameters in
+  /// another library, where a private type cannot be referenced.
+  void _rejectPrivateType(DartType type, Element element, String what) {
+    final name = type.element?.name;
+    if (name != null && name.startsWith('_')) {
+      throw InvalidGenerationSourceError(
+        '$what has the private type `$name` '
+        '(${type.element?.library?.uri}). The generated mediator declares '
+        'this dependency as a constructor parameter in another library, '
+        'where a private type cannot be referenced. Make the type public or '
+        'wrap it in a public class.',
+        element: element,
+      );
     }
-    if (name.isEmpty) name = messageName;
-    return name[0].toLowerCase() + name.substring(1);
+    if (type is InterfaceType) {
+      for (final argument in type.typeArguments) {
+        _rejectPrivateType(argument, element, what);
+      }
+    }
   }
 
   static String _packageOf(LibraryElement library) {
@@ -636,53 +685,50 @@ class ChassisGenerator extends Generator {
     }
 
     if (type is InterfaceType && type.typeArguments.isNotEmpty) {
-      return TypeReference((t) => t
-        ..symbol = type.element.name
-        ..url = uri
-        ..isNullable = type.nullabilitySuffix == NullabilitySuffix.question
-        ..types.addAll(type.typeArguments.map(_referType)));
+      return TypeReference(
+        (t) => t
+          ..symbol = type.element.name
+          ..url = uri
+          ..isNullable = type.nullabilitySuffix == NullabilitySuffix.question
+          ..types.addAll(type.typeArguments.map(_referType)),
+      );
     }
 
     if (type is VoidType) return refer('void');
     if (type is DynamicType) return refer('dynamic');
 
     final name = type.getDisplayString();
-    return TypeReference((t) => t
-      ..symbol = type.nullabilitySuffix == NullabilitySuffix.question
-          ? name.substring(0, name.length - 1)
-          : name
-      ..url = uri
-      ..isNullable = type.nullabilitySuffix == NullabilitySuffix.question);
-  }
-}
-
-/// Finds the first reference to a declaration outside dart:core in a
-/// resolved constant expression.
-class _NonCoreReferenceFinder extends RecursiveAstVisitor<void> {
-  Element? firstNonCoreReference;
-
-  void _check(Element? element) {
-    if (firstNonCoreReference != null || element == null) return;
-    final uri = element.library?.uri;
-    if (uri == null) return;
-    if (uri.isScheme('dart') && uri.path == 'core') return;
-    firstNonCoreReference = element;
-  }
-
-  @override
-  void visitSimpleIdentifier(SimpleIdentifier node) {
-    _check(node.element);
-    super.visitSimpleIdentifier(node);
-  }
-
-  @override
-  void visitNamedType(NamedType node) {
-    _check(node.element);
-    super.visitNamedType(node);
+    return TypeReference(
+      (t) => t
+        ..symbol = type.nullabilitySuffix == NullabilitySuffix.question
+            ? name.substring(0, name.length - 1)
+            : name
+        ..url = uri
+        ..isNullable = type.nullabilitySuffix == NullabilitySuffix.question,
+    );
   }
 }
 
 enum _OperationKind { command, read, watch }
+
+/// Everything the import-graph walk found from one root library.
+class _LibraryScan {
+  _LibraryScan({
+    required this.handlers,
+    required this.messages,
+    required this.foreignHandlers,
+  });
+
+  /// `@chassisHandler` classes of the root library's own package.
+  final List<ClassElement> handlers;
+
+  /// Concrete message classes (in-package, plus the public API of directly
+  /// imported foreign libraries).
+  final List<ClassElement> messages;
+
+  /// `@chassisHandler` classes found outside the root library's package.
+  final List<ClassElement> foreignHandlers;
+}
 
 /// A constructor dependency of a handler.
 class _Dependency {
@@ -705,83 +751,19 @@ class _Dependency {
   }
 }
 
-/// One typed mediator operation derived from a handler.
+/// One handler registration derived from a `@chassisHandler` class.
 class _Operation {
   _Operation({
     required this.handler,
-    required this.module,
     required this.kind,
     required this.messageType,
-    required this.resultType,
-    required this.messageParameters,
     required this.dependencies,
-    required this.methodName,
-    required Reference Function(DartType) referType,
-  }) : _referType = referType;
+  });
 
   final ClassElement handler;
-
-  /// The module this operation belongs to, or null for app-own handlers.
-  final ClassElement? module;
   final _OperationKind kind;
   final InterfaceType messageType;
-  final DartType resultType;
-  final List<FormalParameterElement> messageParameters;
   final List<_Dependency> dependencies;
-  final String methodName;
-  final Reference Function(DartType) _referType;
 
   String get handlerDescription => '${handler.name} (${handler.library.uri})';
-
-  /// Identity of the generated method signature, used to detect two modules
-  /// producing indistinguishable methods.
-  String get signatureKey {
-    final params = messageParameters
-        .map((p) => '${p.isNamed ? '${p.name}:' : ''}${p.type}')
-        .join(',');
-    return '$methodName($params)';
-  }
-
-  TypeReference get methodReturnType => TypeReference((t) => t
-    ..symbol = kind == _OperationKind.watch ? 'Stream' : 'Future'
-    ..types.add(_referType(resultType)));
-
-  Iterable<Parameter> get positionalParameters =>
-      messageParameters.where((p) => p.isRequiredPositional).map(_parameter);
-
-  Iterable<Parameter> get namedAndOptionalParameters =>
-      messageParameters.where((p) => !p.isRequiredPositional).map(_parameter);
-
-  Parameter _parameter(FormalParameterElement param) {
-    final defaultCode = param.defaultValueCode;
-    return Parameter((p) => p
-      ..name = param.name!
-      ..type = _referType(param.type)
-      ..named = param.isNamed
-      ..required = param.isRequiredNamed
-      ..defaultTo = defaultCode != null ? Code(defaultCode) : null);
-  }
-
-  /// `run(LoginCommand(username))` — always dispatches through the mediator
-  /// so middlewares apply.
-  Code get dispatchCall {
-    final positionalArgs = messageParameters
-        .where((p) => p.isPositional)
-        .map((p) => refer(p.name!));
-    final namedArgs = {
-      for (final p in messageParameters.where((p) => p.isNamed))
-        p.name!: refer(p.name!),
-    };
-    final message = refer(
-      messageType.element.name!,
-      messageType.element.library.uri.toString(),
-    ).newInstance(positionalArgs, namedArgs);
-
-    final verb = switch (kind) {
-      _OperationKind.command => 'run',
-      _OperationKind.read => 'read',
-      _OperationKind.watch => 'watch',
-    };
-    return refer(verb).call([message]).code;
-  }
 }

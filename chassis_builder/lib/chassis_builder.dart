@@ -8,10 +8,13 @@ export 'src/generator.dart' show ChassisGenerator;
 /// Builder factory for the chassis mediator generator.
 ///
 /// Generates `<file>.chassis.dart` next to any library annotated with
-/// `@ChassisApp` or declaring a `@chassisModule` class.
+/// `@ChassisApp`. Libraries declaring a `@chassisModule` class are validated
+/// but generate nothing: modules only mark a package's handler barrel for
+/// cross-package discovery.
 Builder chassisBuilder(BuilderOptions options) => LibraryBuilder(
-      const ChassisGenerator(),
-      generatedExtension: '.chassis.dart',
-      header: '$defaultFileHeader\n'
-          '// ignore_for_file: implementation_imports\n',
-    );
+  const ChassisGenerator(),
+  generatedExtension: '.chassis.dart',
+  header:
+      '$defaultFileHeader\n'
+      '// ignore_for_file: implementation_imports\n',
+);

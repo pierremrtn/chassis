@@ -1,16 +1,16 @@
-/// Example chassis module: exposes auth handlers behind a generated
-/// `AuthMediator` interface, consumable by any app without knowing the
-/// app's concrete mediator.
+/// Example chassis module: exposes auth handlers to any app without knowing
+/// the app's concrete mediator.
 ///
-/// The generated interface lives in `example_auth.chassis.dart`.
+/// The module class generates nothing — it marks this package's handler
+/// barrel so `@ChassisApp(modules: [AuthModule])` can discover the handlers
+/// reachable from this library.
 library;
 
 import 'package:chassis/chassis.dart';
 
 export 'src/handlers.dart';
 
-/// Module declaration: the generator emits `AuthMediator` (in
-/// `example_auth.chassis.dart`) from every handler reachable from this
-/// library.
+/// Module declaration: `@ChassisApp(modules: [AuthModule])` registers every
+/// handler reachable from this library on the generated app mediator.
 @chassisModule
 final class AuthModule {}

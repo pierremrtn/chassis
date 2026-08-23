@@ -4,7 +4,7 @@ version: 1.0.0
 publish_to: none
 
 environment:
-  sdk: ^3.6.2
+  sdk: ^3.13.0
 
 resolution: workspace
 
@@ -18,3 +18,4 @@ dev_dependencies:
   chassis_builder:
     path: ../
   build_runner: ^2.15.0
+  test: ^1.25.6

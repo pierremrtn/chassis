@@ -1,11 +1,11 @@
 /// Composition root: the generator emits `AppMediator` (in
-/// `main.chassis.dart`) implementing `AuthMediator` plus the app's own
-/// handlers. If a handler is missing, this file no longer compiles.
+/// `main.chassis.dart`), which extends `Mediator` and registers every
+/// handler of the `AuthModule` package plus the app's own handlers in its
+/// constructor. A reachable message without a handler fails the build.
 @ChassisApp(modules: [AuthModule], mediatorName: 'AppMediator')
 library;
 
 import 'package:chassis/chassis.dart';
-import 'package:example_auth/example_auth.chassis.dart';
 import 'package:example_auth/example_auth.dart';
 
 import 'main.chassis.dart';
@@ -19,11 +19,8 @@ class ConfigStore {
 final class GetAppConfigQuery extends ReadQuery<String> {}
 
 @chassisHandler
-class GetAppConfigHandler implements ReadHandler<GetAppConfigQuery, String> {
-  GetAppConfigHandler({required this.store});
-
-  final ConfigStore store;
-
+class GetAppConfigQueryHandler({required final ConfigStore store})
+    implements ReadHandler<GetAppConfigQuery, String> {
   @override
   Future<String> read(GetAppConfigQuery query) async => store.flavor;
 }
@@ -38,6 +35,9 @@ class FakeAuthRepository implements AuthRepository {
 
   @override
   Future<String> profileOf(String userId) async => 'profile of $userId';
+
+  @override
+  Stream<bool> sessionActive() => Stream.value(true);
 }
 
 void main() async {
@@ -46,12 +46,9 @@ void main() async {
     configStore: ConfigStore(),
   )..addMiddleware(LoggingMiddleware());
 
-  // Typed dispatch through the generated methods (middlewares apply).
-  await mediator.login('ada', 'secret');
-  print(await mediator.getProfile(userId: '42'));
-  print(await mediator.getAppConfig());
-
-  // The module interface alone is enough for shared code:
-  final AuthMediator auth = mediator;
-  await auth.login('grace', 'hopper');
+  // Message-direct dispatch through the mediator (middlewares apply).
+  await mediator.run(LoginCommand('ada', 'secret'));
+  print(await mediator.read(GetProfileQuery(userId: '42')));
+  print(await mediator.read(GetAppConfigQuery()));
+  print(await mediator.watch(WatchSessionQuery()).first);
 }

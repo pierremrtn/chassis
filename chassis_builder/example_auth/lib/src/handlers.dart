@@ -4,45 +4,42 @@ import 'package:chassis/chassis.dart';
 abstract interface class AuthRepository {
   Future<void> login(String username, String password);
   Future<String> profileOf(String userId);
+  Stream<bool> sessionActive();
 }
 
-final class LoginCommand extends Command<void> {
-  LoginCommand(this.username, this.password);
-
-  final String username;
-  final String password;
-
+final class LoginCommand(final String username, final String password)
+    extends Command<void> {
   @override
   Map<String, Object?> get params => {'username': username};
 }
 
 @chassisHandler
-class LoginHandler implements CommandHandler<LoginCommand, void> {
-  LoginHandler({required this.repository});
-
-  final AuthRepository repository;
-
+class LoginCommandHandler({required final AuthRepository repository})
+    implements CommandHandler<LoginCommand, void> {
   @override
   Future<void> run(LoginCommand command) =>
       repository.login(command.username, command.password);
 }
 
-final class GetProfileQuery extends ReadQuery<String> {
-  GetProfileQuery({required this.userId});
-
-  final String userId;
-
+final class GetProfileQuery({required final String userId})
+    extends ReadQuery<String> {
   @override
   Map<String, Object?> get params => {'userId': userId};
 }
 
 @chassisHandler
-class GetProfileHandler implements ReadHandler<GetProfileQuery, String> {
-  GetProfileHandler({required this.repository});
-
-  final AuthRepository repository;
-
+class GetProfileQueryHandler({required final AuthRepository repository})
+    implements ReadHandler<GetProfileQuery, String> {
   @override
   Future<String> read(GetProfileQuery query) =>
       repository.profileOf(query.userId);
+}
+
+final class WatchSessionQuery extends WatchQuery<bool> {}
+
+@chassisHandler
+class WatchSessionQueryHandler({required final AuthRepository repository})
+    implements WatchHandler<WatchSessionQuery, bool> {
+  @override
+  Stream<bool> watch(WatchSessionQuery query) => repository.sessionActive();
 }
