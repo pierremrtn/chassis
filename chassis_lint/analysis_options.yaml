@@ -1,0 +1,9 @@
+# chassis_lint resolves outside the workspace (own analyzer version), so it
+# does not include the shared root options — they are replicated here.
+analyzer:
+  language:
+    strict-casts: true
+    strict-raw-types: true
+    strict-inference: true
+
+include: package:lints/recommended.yaml

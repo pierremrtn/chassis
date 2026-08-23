@@ -1,0 +1,28 @@
+name: chassis_lint_fixtures
+description: Lint fixtures for chassis_lint — bad code marked with expect_lint, good code unmarked. The chassis_lint test suite runs custom_lint here and asserts a clean exit.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.6.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  chassis:
+    path: ../../chassis
+  chassis_flutter:
+    path: ../../chassis_flutter
+
+dev_dependencies:
+  custom_lint: ^0.8.1
+  chassis_lint:
+    path: ../
+
+# chassis and chassis_flutter are workspace members resolved here from
+# outside the workspace: pin their source unambiguously.
+dependency_overrides:
+  chassis:
+    path: ../../chassis
+  chassis_flutter:
+    path: ../../chassis_flutter

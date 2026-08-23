@@ -1,0 +1,21 @@
+name: chassis_lint
+description: custom_lint rules enforcing the chassis framework doctrine — visible error paths, await-free ViewModels, and dispatch-free widgets.
+version: 0.1.0
+repository: https://github.com/pierremrtn/chassis
+homepage: https://affordant.gitbook.io/chassis/
+publish_to: none
+
+environment:
+  sdk: ^3.6.2
+
+# NOT a member of the chassis pub workspace: custom_lint_builder 0.8.x
+# requires analyzer ^8.0.0, while the workspace (via chassis_builder) pins
+# analyzer >=12.0.0 <15.0.0. This package resolves on its own.
+
+dependencies:
+  analyzer: ^8.0.0
+  custom_lint_builder: ^0.8.1
+
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.25.6

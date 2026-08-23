@@ -1,0 +1,17 @@
+analyzer:
+  exclude:
+    - build/**
+    - android/**
+    - ios/**
+    - web/**
+    - windows/**
+    - macos/**
+    - linux/**
+  plugins:
+    - custom_lint
+
+custom_lint:
+  rules:
+    - chassis_visible_error_path
+    - chassis_no_await_in_view_model
+    - chassis_no_dispatch_in_widget
