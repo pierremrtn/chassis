@@ -1,0 +1,35 @@
+name: todo_app
+description: The chassis quick-start todo application (docs/00_quick_start.md).
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: ^3.13.0
+
+# NOT a member of the chassis pub workspace (no `resolution:` key):
+# this package resolves standalone, like a real consumer of the framework.
+
+dependencies:
+  flutter:
+    sdk: flutter
+  chassis:
+    path: ../../chassis
+  chassis_flutter:
+    path: ../../chassis_flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  chassis_builder:
+    path: ../../chassis_builder
+  build_runner: ^2.15.0
+  flutter_lints: ^5.0.0
+
+# chassis_flutter and chassis_builder depend on chassis from pub; inside this
+# repo they must all resolve to the local sources.
+dependency_overrides:
+  chassis:
+    path: ../../chassis
+
+flutter:
+  uses-material-design: true
