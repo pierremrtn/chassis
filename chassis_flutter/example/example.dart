@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 
 final class WatchCounterQuery extends WatchQuery<int> {}
 
-class WatchCounterHandler implements WatchHandler<WatchCounterQuery, int> {
+class WatchCounterQueryHandler implements WatchHandler<WatchCounterQuery, int> {
   @override
   Stream<int> watch(WatchCounterQuery query) =>
       Stream.periodic(const Duration(seconds: 1), (i) => i);
@@ -13,18 +13,15 @@ class WatchCounterHandler implements WatchHandler<WatchCounterQuery, int> {
 
 final class ResetCounterCommand extends Command<void> {}
 
-class ResetCounterHandler implements CommandHandler<ResetCounterCommand, void> {
+class ResetCounterCommandHandler
+    implements CommandHandler<ResetCounterCommand, void> {
   @override
   Future<void> run(ResetCounterCommand command) async {}
 }
 
 // --- Presentation layer: state, events, view model ---
 
-class CounterState {
-  const CounterState({this.count = const Async.loading()});
-
-  final Async<int> count;
-
+class const CounterState({final Async<int> count = const Async.loading()}) {
   CounterState copyWith({Async<int>? count}) =>
       CounterState(count: count ?? this.count);
 }
@@ -34,55 +31,48 @@ sealed class CounterEvent {}
 final class CounterResetEvent implements CounterEvent {}
 
 class CounterViewModel extends ViewModel<CounterState, CounterEvent> {
-  CounterViewModel(this._mediator) : super(const CounterState()) {
+  CounterViewModel({super.mediator}) : super(const CounterState()) {
     watchCounter();
   }
 
-  final Mediator _mediator;
+  void watchCounter() => watch(
+    WatchCounterQuery(),
+    current: state.count,
+    onState: (count) => setState(state.copyWith(count: count)),
+  );
 
-  void watchCounter() {
-    watch(
-      _mediator.watch(WatchCounterQuery()),
-      current: state.count,
-      onState: (count) => setState(state.copyWith(count: count)),
-    );
-  }
-
-  void reset() {
-    run(
-      () => _mediator.run(ResetCounterCommand()),
-      onSuccess: (_) => sendEvent(CounterResetEvent()),
-    );
-  }
+  void reset() => run(
+    ResetCounterCommand(),
+    onSuccess: (_) => sendEvent(CounterResetEvent()),
+    onError: (error, stack) =>
+        setState(state.copyWith(count: state.count.toError(error, stack))),
+  );
 }
 
 // --- App wiring ---
 
 void main() {
-  final mediator = Mediator()
-    ..registerQueryHandler(WatchCounterHandler())
-    ..registerCommandHandler(ResetCounterHandler())
-    ..addMiddleware(LoggingMiddleware());
+  Chassis.initialize(
+    Mediator()
+      ..registerQueryHandler(WatchCounterQueryHandler())
+      ..registerCommandHandler(ResetCounterCommandHandler())
+      ..addMiddleware(LoggingMiddleware()),
+  );
 
-  runApp(MyApp(mediator: mediator));
+  runApp(const MyApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key, required this.mediator});
-
-  final Mediator mediator;
-
+class const MyApp({super.key}) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       home: ViewModelProvider.withEventListener<CounterViewModel, CounterEvent>(
-        create: (context) => CounterViewModel(mediator),
+        create: (context) => CounterViewModel(),
         onEvent: (context, viewModel, event) {
           switch (event) {
             case CounterResetEvent():
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Counter reset')),
-              );
+              ScaffoldMessenger.of(context)
+                  .showSnackBar(const SnackBar(content: Text('Counter reset')));
           }
         },
         child: const CounterScreen(),
@@ -91,18 +81,14 @@ class MyApp extends StatelessWidget {
   }
 }
 
-class CounterScreen extends StatelessWidget {
-  const CounterScreen({super.key});
-
+class const CounterScreen({super.key}) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Chassis counter')),
       body: Center(
         child: AsyncBuilder<int>(
-          state: context.select(
-            (CounterViewModel vm) => vm.state.count,
-          ),
+          state: context.select((CounterViewModel vm) => vm.state.count),
           builder: (context, count) => Text('Count: $count'),
         ),
       ),

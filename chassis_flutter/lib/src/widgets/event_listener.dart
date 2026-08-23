@@ -41,20 +41,14 @@ import 'package:provider/provider.dart';
 /// wrapping its tree, use [EventListenerMixin] instead. To listen at the
 /// provision site, use `ViewModelProvider.withEventListener`.
 /// {@endtemplate}
-class EventListener<T extends ViewModel<Object?, E>, E> extends StatefulWidget {
-  /// {@macro event_listener}
-  const EventListener({
-    required this.onEvent,
-    required this.child,
-    super.key,
-  });
-
+class const EventListener<T extends ViewModel<Object?, E>, E>({
   /// Called for each event emitted by the [T] above this widget.
-  final void Function(BuildContext context, E event) onEvent;
+  required final void Function(BuildContext context, E event) onEvent,
 
   /// The subtree below the listener; passed through untouched.
-  final Widget child;
-
+  required final Widget child,
+  super.key,
+}) extends StatefulWidget {
   @override
   State<EventListener<T, E>> createState() => _EventListenerState<T, E>();
 }
@@ -141,7 +135,7 @@ mixin EventListenerMixin<W extends StatefulWidget> on State<W> {
   /// recreates the ViewModel, a new instance can be listened to without
   /// clashing with the (now stale) previous registration.
   final Map<ViewModel<dynamic, dynamic>, StreamSubscription<Object?>>
-      _subscriptions = {};
+  _subscriptions = {};
 
   @override
   void dispose() {

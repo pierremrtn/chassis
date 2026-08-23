@@ -32,37 +32,37 @@
 /// ```dart
 /// import 'package:chassis_flutter/chassis_flutter.dart';
 ///
-/// // Define a view model
+/// // Initialize once, before runApp
+/// void main() {
+///   Chassis.initialize(AppMediator(userRepository: UserRepository()));
+///   runApp(const MyApp());
+/// }
+///
+/// // Define a view model — it dispatches messages, never a concrete mediator
 /// class UserViewModel extends ViewModel<UserState, UserEvent> {
-///   UserViewModel(this._mediator) : super(UserState.initial());
+///   UserViewModel({super.mediator}) : super(UserState.initial());
 ///
-///   final Mediator _mediator;
-///
-///   void loadUser(String userId) {
-///     run(
-///       () => _mediator.read(GetUserQuery(userId: userId)),
-///       key: #user,
-///       policy: const RunPolicy.restartable(),
-///       current: state.user,
-///       onState: (user) => setState(state.copyWith(user: user)),
-///     );
-///   }
+///   void loadUser(String userId) => read(
+///         GetUserQuery(userId: userId),
+///         policy: const RunPolicy.restartable(),
+///         current: state.user,
+///         onState: (user) => setState(state.copyWith(user: user)),
+///       );
 /// }
 ///
 /// // Use in a widget
-/// class UserScreen extends StatelessWidget {
-///   const UserScreen({super.key});
-///
+/// class const UserScreen({super.key}) extends StatelessWidget {
 ///   @override
 ///   Widget build(BuildContext context) {
 ///     return ViewModelProvider(
-///       create: (context) => UserViewModel(context.read<Mediator>())..loadUser('42'),
+///       create: (context) => UserViewModel()..loadUser('42'),
 ///       child: Consumer<UserViewModel>(
 ///         builder: (context, viewModel, child) {
-///           return AsyncBuilder<User>(
-///             state: viewModel.state.user,
-///             builder: (context, user) => Text('User: ${user.name}'),
-///           );
+///           return switch (viewModel.state.user) {
+///             AsyncData(:final value) => Text('User: ${value.name}'),
+///             AsyncLoading() => const CircularProgressIndicator(),
+///             AsyncError() => const Text('Something went wrong'),
+///           };
 ///         },
 ///       ),
 ///     );
@@ -75,6 +75,7 @@ export 'package:chassis/chassis.dart';
 export 'package:provider/provider.dart';
 
 export 'src/safe_notifier.dart';
+export 'src/telemetry/chassis_telemetry.dart';
 export 'src/view_model/view_model.dart';
 export 'src/view_model/view_model_provider.dart';
 export 'src/widgets/async_builder.dart';

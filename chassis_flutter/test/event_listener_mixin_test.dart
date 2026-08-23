@@ -12,11 +12,10 @@ class TestViewModel extends ViewModel<int, TestEvent> {
   void ping() => sendEvent(PingEvent());
 }
 
-class ListenerScreen extends StatefulWidget {
-  const ListenerScreen({super.key, required this.onEventReceived});
-
-  final void Function(TestEvent event) onEventReceived;
-
+class const ListenerScreen({
+  super.key,
+  required final void Function(TestEvent event) onEventReceived,
+}) extends StatefulWidget {
   @override
   State<ListenerScreen> createState() => _ListenerScreenState();
 }
@@ -39,13 +38,15 @@ void main() {
       final received = <TestEvent>[];
       late TestViewModel vm;
 
-      await tester.pumpWidget(MaterialApp(
-        home: ViewModelProvider(
-          lazy: false,
-          create: (_) => vm = TestViewModel(),
-          child: ListenerScreen(onEventReceived: received.add),
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ViewModelProvider(
+            lazy: false,
+            create: (_) => vm = TestViewModel(),
+            child: ListenerScreen(onEventReceived: received.add),
+          ),
         ),
-      ));
+      );
 
       vm.ping();
       await tester.pump();
@@ -57,12 +58,14 @@ void main() {
       final received = <TestEvent>[];
       final vm = TestViewModel();
 
-      await tester.pumpWidget(MaterialApp(
-        home: ViewModelProvider.value(
-          value: vm,
-          child: ListenerScreen(onEventReceived: received.add),
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ViewModelProvider.value(
+            value: vm,
+            child: ListenerScreen(onEventReceived: received.add),
+          ),
         ),
-      ));
+      );
       await tester.pumpWidget(const MaterialApp(home: SizedBox()));
 
       vm.ping();
@@ -73,54 +76,61 @@ void main() {
     });
 
     testWidgets(
-        're-registering after a provider swap cancels the stale subscription',
-        (tester) async {
-      final received = <TestEvent>[];
-      final first = TestViewModel();
-      final second = TestViewModel();
+      're-registering after a provider swap cancels the stale subscription',
+      (tester) async {
+        final received = <TestEvent>[];
+        final first = TestViewModel();
+        final second = TestViewModel();
 
-      Widget app(TestViewModel vm) => MaterialApp(
-            home: ViewModelProvider.value(
-              value: vm,
-              child: _ResubscribingScreen(
-                  viewModel: vm, onEventReceived: received.add),
+        Widget app(TestViewModel vm) => MaterialApp(
+          home: ViewModelProvider.value(
+            value: vm,
+            child: _ResubscribingScreen(
+              viewModel: vm,
+              onEventReceived: received.add,
             ),
-          );
+          ),
+        );
 
-      await tester.pumpWidget(app(first));
-      await tester.pumpWidget(app(second));
+        await tester.pumpWidget(app(first));
+        await tester.pumpWidget(app(second));
 
-      first.ping();
-      await tester.pump();
-      expect(received, isEmpty,
-          reason: 'the stale subscription must have been cancelled');
+        first.ping();
+        await tester.pump();
+        expect(
+          received,
+          isEmpty,
+          reason: 'the stale subscription must have been cancelled',
+        );
 
-      second.ping();
-      await tester.pump();
-      expect(received.single, isA<PingEvent>());
+        second.ping();
+        await tester.pump();
+        expect(received.single, isA<PingEvent>());
 
-      first.dispose();
-      second.dispose();
-    });
+        first.dispose();
+        second.dispose();
+      },
+    );
 
-    testWidgets('registering twice for the same view model type throws',
-        (tester) async {
-      await tester.pumpWidget(MaterialApp(
-        home: ViewModelProvider(
-          lazy: false,
-          create: (_) => TestViewModel(),
-          child: const _DoubleListenerScreen(),
+    testWidgets('registering twice for the same view model type throws', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ViewModelProvider(
+            lazy: false,
+            create: (_) => TestViewModel(),
+            child: const _DoubleListenerScreen(),
+          ),
         ),
-      ));
+      );
 
       expect(tester.takeException(), isA<StateError>());
     });
   });
 }
 
-class _DoubleListenerScreen extends StatefulWidget {
-  const _DoubleListenerScreen();
-
+class const _DoubleListenerScreen() extends StatefulWidget {
   @override
   State<_DoubleListenerScreen> createState() => _DoubleListenerScreenState();
 }
@@ -140,15 +150,10 @@ class _DoubleListenerScreenState extends State<_DoubleListenerScreen>
 
 /// Registers on init and re-registers when the provided instance swaps, as a
 /// screen kept alive across a provider recreation would.
-class _ResubscribingScreen extends StatefulWidget {
-  const _ResubscribingScreen({
-    required this.viewModel,
-    required this.onEventReceived,
-  });
-
-  final TestViewModel viewModel;
-  final void Function(TestEvent event) onEventReceived;
-
+class const _ResubscribingScreen({
+  required final TestViewModel viewModel,
+  required final void Function(TestEvent event) onEventReceived,
+}) extends StatefulWidget {
   @override
   State<_ResubscribingScreen> createState() => _ResubscribingScreenState();
 }

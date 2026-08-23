@@ -6,145 +6,175 @@ void main() {
   group('AsyncBuilder', () {
     testWidgets('renders data when state is AsyncData', (tester) async {
       final state = Async.data('test data');
-      await tester.pumpWidget(MaterialApp(
-        home: AsyncBuilder<String>(
-          state: state,
-          builder: (context, data) => Text('Data: $data'),
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AsyncBuilder<String>(
+            state: state,
+            builder: (context, data) => Text('Data: $data'),
+          ),
         ),
-      ));
+      );
 
       expect(find.text('Data: test data'), findsOneWidget);
     });
 
-    testWidgets('renders loading when state is AsyncLoading (initial)',
-        (tester) async {
+    testWidgets('renders loading when state is AsyncLoading (initial)', (
+      tester,
+    ) async {
       const state = Async<String>.loading();
-      await tester.pumpWidget(MaterialApp(
-        home: AsyncBuilder<String>(
-          state: state,
-          builder: (context, data) => Text('Data: $data'),
-          loadingBuilder: (context) => const Text('Loading...'),
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AsyncBuilder<String>(
+            state: state,
+            builder: (context, data) => Text('Data: $data'),
+            loadingBuilder: (context) => const Text('Loading...'),
+          ),
         ),
-      ));
+      );
 
       expect(find.text('Loading...'), findsOneWidget);
     });
 
     testWidgets(
-        'renders default loading (CircularProgressIndicator) if no loadingBuilder provided',
-        (tester) async {
-      const state = Async<String>.loading();
-      await tester.pumpWidget(MaterialApp(
-        home: AsyncBuilder<String>(
-          state: state,
-          builder: (context, data) => Text('Data: $data'),
-        ),
-      ));
+      'renders default loading (CircularProgressIndicator) if no loadingBuilder provided',
+      (tester) async {
+        const state = Async<String>.loading();
+        await tester.pumpWidget(
+          MaterialApp(
+            home: AsyncBuilder<String>(
+              state: state,
+              builder: (context, data) => Text('Data: $data'),
+            ),
+          ),
+        );
 
-      expect(find.byType(CircularProgressIndicator), findsOneWidget);
-    });
+        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      },
+    );
 
-    testWidgets('renders error when state is AsyncError (initial)',
-        (tester) async {
+    testWidgets('renders error when state is AsyncError (initial)', (
+      tester,
+    ) async {
       final state = Async<String>.error(Exception('oops'));
-      await tester.pumpWidget(MaterialApp(
-        home: AsyncBuilder<String>(
-          state: state,
-          builder: (context, data) => Text('Data: $data'),
-          errorBuilder: (context, error) => Text('Error: $error'),
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AsyncBuilder<String>(
+            state: state,
+            builder: (context, data) => Text('Data: $data'),
+            errorBuilder: (context, error) => Text('Error: $error'),
+          ),
         ),
-      ));
+      );
 
       expect(find.textContaining('Error: Exception: oops'), findsOneWidget);
     });
 
     testWidgets(
-        'maintains state (Anti-flickering) when refreshing (Loading with previous value)',
-        (tester) async {
-      final state =
-          Async<String>.loading(previous: const AsyncData('previous data'));
+      'maintains state (Anti-flickering) when refreshing (Loading with previous value)',
+      (tester) async {
+        final state = Async<String>.loading(
+          previous: const AsyncData('previous data'),
+        );
 
-      await tester.pumpWidget(MaterialApp(
-        home: AsyncBuilder<String>(
-          state: state,
-          builder: (context, data) => Text('Data: $data'),
-          loadingBuilder: (context) => const Text('Loading...'),
-          maintainState: true, // Default
-        ),
-      ));
+        await tester.pumpWidget(
+          MaterialApp(
+            home: AsyncBuilder<String>(
+              state: state,
+              builder: (context, data) => Text('Data: $data'),
+              loadingBuilder: (context) => const Text('Loading...'),
+              maintainState: true, // Default
+            ),
+          ),
+        );
 
-      // Should show data, NOT loading
-      expect(find.text('Data: previous data'), findsOneWidget);
-      expect(find.text('Loading...'), findsNothing);
-    });
-
-    testWidgets(
-        'shows loading if maintainState is false even with previous value',
-        (tester) async {
-      final state =
-          Async<String>.loading(previous: const AsyncData('previous data'));
-
-      await tester.pumpWidget(MaterialApp(
-        home: AsyncBuilder<String>(
-          state: state,
-          builder: (context, data) => Text('Data: $data'),
-          loadingBuilder: (context) => const Text('Loading...'),
-          maintainState: false,
-        ),
-      ));
-
-      // Should show loading
-      expect(find.text('Loading...'), findsOneWidget);
-      expect(find.text('Data: previous data'), findsNothing);
-    });
+        // Should show data, NOT loading
+        expect(find.text('Data: previous data'), findsOneWidget);
+        expect(find.text('Loading...'), findsNothing);
+      },
+    );
 
     testWidgets(
-        'maintains state (Anti-flickering) when error occurs with previous value',
-        (tester) async {
-      final state = Async<String>.error(Exception('fail'),
-          previous: const AsyncData('previous data'));
+      'shows loading if maintainState is false even with previous value',
+      (tester) async {
+        final state = Async<String>.loading(
+          previous: const AsyncData('previous data'),
+        );
 
-      await tester.pumpWidget(MaterialApp(
-        home: AsyncBuilder<String>(
-          state: state,
-          builder: (context, data) => Text('Data: $data'),
-          errorBuilder: (context, err) => Text('Error: $err'),
-          maintainState: true, // Default
-        ),
-      ));
+        await tester.pumpWidget(
+          MaterialApp(
+            home: AsyncBuilder<String>(
+              state: state,
+              builder: (context, data) => Text('Data: $data'),
+              loadingBuilder: (context) => const Text('Loading...'),
+              maintainState: false,
+            ),
+          ),
+        );
 
-      // Should show data, NOT error
-      expect(find.text('Data: previous data'), findsOneWidget);
-      expect(find.textContaining('Error'), findsNothing);
-    });
+        // Should show loading
+        expect(find.text('Loading...'), findsOneWidget);
+        expect(find.text('Data: previous data'), findsNothing);
+      },
+    );
 
-    testWidgets('renders the data branch for AsyncData(null) with nullable T',
-        (tester) async {
+    testWidgets(
+      'maintains state (Anti-flickering) when error occurs with previous value',
+      (tester) async {
+        final state = Async<String>.error(
+          Exception('fail'),
+          previous: const AsyncData('previous data'),
+        );
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: AsyncBuilder<String>(
+              state: state,
+              builder: (context, data) => Text('Data: $data'),
+              errorBuilder: (context, err) => Text('Error: $err'),
+              maintainState: true, // Default
+            ),
+          ),
+        );
+
+        // Should show data, NOT error
+        expect(find.text('Data: previous data'), findsOneWidget);
+        expect(find.textContaining('Error'), findsNothing);
+      },
+    );
+
+    testWidgets('renders the data branch for AsyncData(null) with nullable T', (
+      tester,
+    ) async {
       const state = Async<String?>.data(null);
 
-      await tester.pumpWidget(MaterialApp(
-        home: AsyncBuilder<String?>(
-          state: state,
-          builder: (context, data) => Text('Data: $data'),
-          loadingBuilder: (context) => const Text('Loading...'),
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AsyncBuilder<String?>(
+            state: state,
+            builder: (context, data) => Text('Data: $data'),
+            loadingBuilder: (context) => const Text('Loading...'),
+          ),
         ),
-      ));
+      );
 
       expect(find.text('Data: null'), findsOneWidget);
       expect(find.text('Loading...'), findsNothing);
     });
 
-    testWidgets('renders data even when maintainState is false',
-        (tester) async {
+    testWidgets('renders data even when maintainState is false', (
+      tester,
+    ) async {
       const state = Async.data('fresh');
 
-      await tester.pumpWidget(MaterialApp(
-        home: AsyncBuilder<String>(
-          state: state,
-          builder: (context, data) => Text('Data: $data'),
-          maintainState: false,
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AsyncBuilder<String>(
+            state: state,
+            builder: (context, data) => Text('Data: $data'),
+            maintainState: false,
+          ),
         ),
-      ));
+      );
 
       expect(find.text('Data: fresh'), findsOneWidget);
     });

@@ -27,13 +27,20 @@ void main() {
       expect(count, 0);
     });
 
-    test('addListener after dispose is a no-op', () {
+    test('addListener after dispose throws in debug: ChangeNotifier.dispose '
+        'really ran', () {
       final notifier = TestNotifier();
       notifier.dispose();
-      expect(() => notifier.addListener(() {}), returnsNormally);
+      // Only notifying is made safe. Adding a listener to a disposed
+      // notifier is a real bug, and Flutter's own debug assert must stay
+      // armed — it fires only if the dispose chain reached
+      // ChangeNotifier.dispose (regression test: the chain used to stop at
+      // a pure-Dart mixin, silently disarming every use-after-dispose
+      // assert and leak tracking).
+      expect(() => notifier.addListener(() {}), throwsFlutterError);
     });
 
-    test('removeListener after dispose is a no-op', () {
+    test('removeListener after dispose is allowed, as in plain Flutter', () {
       final notifier = TestNotifier();
       void listener() {}
       notifier.addListener(listener);

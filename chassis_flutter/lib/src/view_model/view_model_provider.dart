@@ -39,13 +39,12 @@ class ViewModelProvider<T extends ViewModel<Object?, Object?>>
     extends SingleChildStatelessWidget {
   /// {@macro view_model_provider}
   const ViewModelProvider({
-    required T Function(BuildContext context) create,
+    required this._create,
     super.key,
     this.child,
     this.lazy = true,
-  })  : _create = create,
-        _value = null,
-        super(child: child);
+  }) : _value = null,
+       super(child: child);
 
   /// {@template view_model_provider_value}
   /// Takes a [value] and a [child] which will have access to the [value] via
@@ -66,14 +65,10 @@ class ViewModelProvider<T extends ViewModel<Object?, Object?>>
   /// );
   /// ```
   /// {@endtemplate}
-  const ViewModelProvider.value({
-    required T value,
-    super.key,
-    this.child,
-  })  : _value = value,
-        _create = null,
-        lazy = true,
-        super(child: child);
+  const ViewModelProvider.value({required this._value, super.key, this.child})
+    : _create = null,
+      lazy = true,
+      super(child: child);
 
   /// Widget which will have access to the [ViewModel].
   final Widget? child;
@@ -117,7 +112,7 @@ class ViewModelProvider<T extends ViewModel<Object?, Object?>>
   /// ```
   /// {@endtemplate}
   static SingleChildWidget
-      withEventListener<T extends ViewModel<Object?, E>, E>({
+  withEventListener<T extends ViewModel<Object?, E>, E>({
     Key? key,
     required T Function(BuildContext context) create,
     required void Function(BuildContext context, T viewModel, E event) onEvent,
@@ -153,16 +148,14 @@ class ViewModelProvider<T extends ViewModel<Object?, Object?>>
       return Provider.of<T>(context, listen: listen);
     } on ProviderNotFoundException catch (e) {
       if (e.valueType != T) rethrow;
-      throw FlutterError(
-        '''
+      throw FlutterError('''
         ViewModelProvider.of() called with a context that does not contain a $T.
         No ancestor could be found starting from the context that was passed to ViewModelProvider.of<$T>().
 
         This can happen if the context you used comes from a widget above the ViewModelProvider.
 
         The context used was: $context
-        ''',
-      );
+        ''');
     }
   }
 
@@ -220,27 +213,22 @@ class ViewModelProvider<T extends ViewModel<Object?, Object?>>
 /// );
 /// ```
 /// {@endtemplate}
-class MultiViewModelProvider extends MultiProvider {
-  /// {@macro multi_view_model_provider}
-  MultiViewModelProvider({
-    super.key,
-    required super.providers,
-    required Widget super.child,
-  });
-}
+class MultiViewModelProvider({
+  super.key,
+  required super.providers,
+  required Widget super.child,
+}) extends MultiProvider;
 
-class _ViewModelEventListenerProvider<T extends ViewModel<Object?, E>, E>
-    extends SingleChildStatefulWidget {
-  const _ViewModelEventListenerProvider({
-    super.key,
-    required this.create,
-    required this.onEvent,
-    super.child,
-  });
-
-  final T Function(BuildContext context) create;
-  final void Function(BuildContext context, T viewModel, E event) onEvent;
-
+class const _ViewModelEventListenerProvider<
+  T extends ViewModel<Object?, E>,
+  E
+>({
+  super.key,
+  required final T Function(BuildContext context) create,
+  required final void Function(BuildContext context, T viewModel, E event)
+  onEvent,
+  super.child,
+}) extends SingleChildStatefulWidget {
   @override
   State<_ViewModelEventListenerProvider<T, E>> createState() =>
       _ViewModelEventListenerProviderState<T, E>();
@@ -270,9 +258,6 @@ class _ViewModelEventListenerProviderState<T extends ViewModel<Object?, E>, E>
 
   @override
   Widget buildWithChild(BuildContext context, Widget? child) {
-    return ViewModelProvider<T>.value(
-      value: _viewModel,
-      child: child,
-    );
+    return ViewModelProvider<T>.value(value: _viewModel, child: child);
   }
 }
