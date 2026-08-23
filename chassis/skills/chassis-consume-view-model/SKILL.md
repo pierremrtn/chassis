@@ -21,7 +21,9 @@ description: Provide a Chassis ViewModel to a widget subtree with `ViewModelProv
 - calls `viewModel.dispose()` automatically when the provider is removed from the tree,
 - attaches a `ChangeNotifier` listener so that descendants subscribed via `context.watch<T>()` rebuild when state changes.
 
-`ViewModelProvider.value(value: existingVm)` re-provides an *existing* instance to a new subtree without taking ownership of disposal. It is the right tool for shared ViewModels across navigation routes or for passing a ViewModel into a widget test.
+The `create:` callback constructs the ViewModel with its route parameters only — **no mediator argument**. The app mediator is installed once at startup by `Chassis.initialize(AppMediator(...))` (see `chassis-bootstrap-app`) and resolved by the ViewModel at its first dispatch; the ViewModel's `mediator:` constructor parameter exists for tests only (see `chassis-create-view-model`).
+
+`ViewModelProvider.value(value: existingVm)` re-provides an *existing* instance to a new subtree without taking ownership of disposal. It is the right tool for shared ViewModels across navigation routes and for providing a ViewModel in a widget test.
 
 `ViewModelProvider.withEventListener<T, E>` is the variant that also subscribes to the ViewModel's `events` stream — see `chassis-handle-view-model-events`. It is eager (non-lazy), and the ViewModel additionally buffers events sent before the first subscriber, so events emitted during construction are delivered rather than lost.
 
@@ -38,7 +40,7 @@ description: Provide a Chassis ViewModel to a widget subtree with `ViewModelProv
 
 The `provider` package surfaces these accessors on `BuildContext`:
 
-- **`context.select((T vm) => vm.state.<field>)`** — subscribes the calling widget to **just the selected value**: the widget rebuilds only when that value changes (compared with `==`). This is the preferred way to read state inside `build` — a widget rendering one field is not rebuilt by unrelated state changes. `Async<T>` variants implement `==`, so selecting an `Async<T>` field behaves correctly.
+- **`context.select((T vm) => vm.state.<field>)`** — subscribes the calling widget to **the selected value alone**: the widget rebuilds only when that value changes (compared with `==`). This is the preferred way to read state inside `build` — a widget rendering one field is not rebuilt by unrelated state changes. Always write it in the inferred-parameter form (`context.select((TodoViewModel vm) => vm.state.todos)`), never with explicit type arguments. `Async<T>` variants implement `==`, so selecting an `Async<T>` field behaves correctly.
 - **`context.watch<T>()`** — subscribes the calling widget to the VM's `ChangeNotifier`. Rebuilds the widget on **every** state change. Reach for it only when a widget genuinely renders most of the state.
 - **`context.read<T>()`** — fetches the VM **without** subscribing. Does not trigger rebuilds. Use inside callbacks (`onPressed`, `onChanged`) where you only need to call a method.
 - **`ViewModelProvider.of<T>(context, {listen: false})`** — the explicit form. Equivalent to `context.read<T>()` when `listen: false`, and to `context.watch<T>()` when `listen: true`.
@@ -47,10 +49,11 @@ The choice matters: calling `context.watch<T>()` or `context.select` from inside
 
 ## Rules
 
-- **DO** wrap a screen with `ViewModelProvider<TViewModel>(create: (_) => TViewModel(mediator), child: ...)` to give it a ViewModel. *The provider owns creation, exposure, and disposal.*
+- **DO** wrap a screen with `ViewModelProvider<TViewModel>(create: (_) => TViewModel(...), child: ...)` to give it a ViewModel. *The provider owns creation, exposure, and disposal.*
+- **DO** construct the VM in `create:` with route parameters only — never pass a mediator. *`Chassis.initialize` installed the app mediator at startup; the `mediator:` constructor parameter is the testing seam.*
 - **DO** use `ViewModelProvider.withEventListener<T, E>` instead when the screen also handles one-time events. *It combines provision and event listening, runs eagerly so construction-time events are not missed.* See `chassis-handle-view-model-events`.
 - **DO** use `ViewModelProvider<T>.value(value: existing)` when re-providing a VM that already exists — across a navigation push, into a sub-route, or in a widget test.
-- **DO** read state inside `build` with `context.select((TViewModel vm) => vm.state.<field>)`. *Subscribes the widget to just that field — unrelated state changes don't rebuild it.*
+- **DO** read state inside `build` with `context.select((TViewModel vm) => vm.state.<field>)`. *Subscribes the widget to that field alone — unrelated state changes don't rebuild it.*
 - **DO** read inside callbacks with `context.read<TViewModel>()`. *No subscription, no spurious rebuilds, no surprise.*
 - **DO** keep `create:` callbacks free of side effects beyond constructing the VM. *Side effects in `create:` are tied to provider lifecycle, not screen lifecycle, and become hard to reason about.*
 - **PREFER** `context.select` over `context.watch<T>()` for rendering. *`watch` rebuilds the widget on every state change; reserve it for widgets that genuinely render most of the state.*
@@ -59,6 +62,7 @@ The choice matters: calling `context.watch<T>()` or `context.select` from inside
 - **DON'T** instantiate a ViewModel directly in a parent widget and pass it down by parameter when more than one descendant needs to read it. *Use `ViewModelProvider`. Manual prop-drilling defeats the dependency injection the provider exists to handle.*
 - **DON'T** call `context.read<T>()` from inside `build` and expect the widget to rebuild on state change. *Use `context.select` (or `context.watch<T>()`). `read` does not subscribe.*
 - **DON'T** pass an existing VM through the `create:` callback of `ViewModelProvider`. *That handler will dispose it. Use `ViewModelProvider.value(...)` to re-provide without taking ownership.*
+- **DON'T** provide a ViewModel with `Provider<T>.value` — in widget tests or anywhere else. *A ViewModel IS a `Listenable`: provider's `debugCheckInvalidValueType` throws at `pumpWidget`. Use `ViewModelProvider<T>.value`.*
 - **DON'T** keep a `BuildContext` reference across `await` boundaries before reading providers. *The widget may unmount; `context.mounted` is the safety check.*
 
 ## Workflow
@@ -68,10 +72,10 @@ The choice matters: calling `context.watch<T>()` or `context.select` from inside
   - State only → `ViewModelProvider<TVM>(create: ..., child: ...)`.
   - State **and** events → `ViewModelProvider.withEventListener<TVM, TEvent>(create: ..., onEvent: ..., child: ...)`. See `chassis-handle-view-model-events`.
   - Re-providing an existing VM → `ViewModelProvider<TVM>.value(value: existingVm, child: ...)`.
-- [ ] **Step 3 — Construct the VM in the `create:` callback** with the Mediator (and any other constructor params from the route — for example, an `id` from route arguments). Avoid side effects.
-- [ ] **Step 4 — Read state in descendants** via `context.select((TVM vm) => vm.state.<field>)` inside `build`, paired with `AsyncBuilder` for `Async<T>` fields. See `chassis-render-async-state`.
+- [ ] **Step 3 — Construct the VM in the `create:` callback** with its route parameters (for example, an `id` from route arguments) — no mediator argument, no side effects.
+- [ ] **Step 4 — Read state in descendants** via `context.select((TVM vm) => vm.state.<field>)` inside `build`, rendered with a `switch` expression on the `Async<T>` (or `AsyncBuilder` for anti-flicker). See `chassis-render-async-state`.
 - [ ] **Step 5 — Read inside callbacks** via `context.read<TVM>().<method>(...)` so the widget hosting the callback does not subscribe.
-- [ ] **Step 6 — In tests**, inject a mock VM with `ViewModelProvider<TVM>.value(value: mockVm, child: widgetUnderTest)`. Stub `dispose()` on the mock if `withEventListener` is involved.
+- [ ] **Step 6 — In tests**, construct the VM with a fake mediator (`TVM(mediator: fakeMediator)`) and provide it with `ViewModelProvider<TVM>.value(value: vm, child: widgetUnderTest)` — never `Provider<TVM>.value`.
 
 ## Examples
 
@@ -81,23 +85,18 @@ The choice matters: calling `context.watch<T>()` or `context.select` from inside
 import 'package:chassis_flutter/chassis_flutter.dart';
 import 'package:flutter/material.dart';
 
-class UserProfileRoute extends StatelessWidget {
-  const UserProfileRoute({super.key, required this.userId});
-
-  final String userId;
-
+class const UserProfileRoute({super.key, required final String userId})
+    extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ViewModelProvider<UserProfileViewModel>(
-      create: (_) => UserProfileViewModel(mediator, userId: userId),
+      create: (_) => UserProfileViewModel(userId: userId),
       child: const UserProfileScreen(),
     );
   }
 }
 
-class UserProfileScreen extends StatelessWidget {
-  const UserProfileScreen({super.key});
-
+class const UserProfileScreen({super.key}) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // select — this widget rebuilds only when state.user changes
@@ -116,15 +115,18 @@ class UserProfileScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: AsyncBuilder<User>(
-        state: asyncUser,
-        builder: (_, user) => UserProfileBody(user: user),
-        errorBuilder: (_, error) => Text('Failed: $error'),
-      ),
+      // Simple rendering: an inline switch on the sealed Async<User>.
+      body: switch (asyncUser) {
+        AsyncLoading() => const Center(child: CircularProgressIndicator()),
+        AsyncError(:final error) => Center(child: Text('Failed: $error')),
+        AsyncData(value: final user) => UserProfileBody(user: user),
+      },
     );
   }
 }
 ```
+
+The `create:` callback passes route parameters only — the ViewModel dispatches through the mediator installed by `Chassis.initialize`. See `chassis-render-async-state` for when to use `AsyncBuilder` instead of the `switch`.
 
 ### Re-providing an existing VM into a new route
 
@@ -147,7 +149,7 @@ Navigator.push(
 ```dart
 ViewModelProvider<DashboardViewModel>(
   lazy: false, // run constructor side effects (initial watch) immediately
-  create: (_) => DashboardViewModel(mediator),
+  create: (_) => DashboardViewModel(),
   child: const DashboardScreen(),
 );
 ```
@@ -158,37 +160,40 @@ Use this only when the VM's constructor starts a `watch(...)` whose initial load
 
 ```dart
 testWidgets('renders user name when loaded', (tester) async {
-  final mockVm = MockUserProfileViewModel();
-  when(() => mockVm.state).thenReturn(
-    UserProfileState(
-      user: Async.data(User(id: '1', name: 'Alice', email: 'a@x.test')),
-      isEditing: false,
-    ),
+  // The constructor seam: a real Mediator carrying fake handlers.
+  final vm = UserProfileViewModel(
+    userId: '1',
+    mediator: Mediator()
+      ..registerQueryHandler(
+        FakeWatchUserHandler(User(id: '1', name: 'Alice', email: 'a@x.test')),
+      ),
   );
+  addTearDown(vm.dispose);
 
   await tester.pumpWidget(
     MaterialApp(
       home: ViewModelProvider<UserProfileViewModel>.value(
-        value: mockVm,
+        value: vm,
         child: const UserProfileScreen(),
       ),
     ),
   );
+  await tester.pump();
 
   expect(find.text('Alice'), findsOneWidget);
 });
 ```
 
-The `.value` constructor does not call `dispose()` on the mock at teardown — exactly what you want for a test.
+`.value` does not dispose the VM at teardown — the test owns it (`addTearDown`). Never provide the VM with `Provider<UserProfileViewModel>.value`: a ViewModel is a `Listenable`, and provider's `debugCheckInvalidValueType` throws at `pumpWidget`. And never `Chassis.initialize` in tests — the constructor's `mediator:` override wins over the global and leaks nothing between test cases.
 
 ### Anti-pattern: prop-drilling
 
 ```dart
 // ❌ Don't do this — manual prop-drilling defeats the provider abstraction.
-class UserProfileScreen extends StatelessWidget {
-  const UserProfileScreen({super.key, required this.viewModel});
-  final UserProfileViewModel viewModel;
-
+class const UserProfileScreen({
+  super.key,
+  required final UserProfileViewModel viewModel,
+}) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -201,7 +206,7 @@ class UserProfileScreen extends StatelessWidget {
 ```dart
 // ✅ Provide once at the route boundary, read where needed
 ViewModelProvider<UserProfileViewModel>(
-  create: (_) => UserProfileViewModel(mediator),
+  create: (_) => UserProfileViewModel(userId: userId),
   child: const UserProfileScreen(),
 );
 ```
@@ -209,7 +214,8 @@ ViewModelProvider<UserProfileViewModel>(
 ### Anti-pattern: `context.read` inside `build`
 
 ```dart
-// ❌ Doesn't rebuild on state change — read does not subscribe.
+// ❌ Doesn't rebuild on state change — read does not subscribe. (And
+// `valueOrNull ?? fallback` collapses the error state into placeholder text.)
 @override
 Widget build(BuildContext context) {
   final viewModel = context.read<UserProfileViewModel>();
@@ -218,14 +224,16 @@ Widget build(BuildContext context) {
 ```
 
 ```dart
-// ✅ Use select in build, read in callbacks
+// ✅ select in build, exhaustive switch on the sealed Async, read in callbacks
 @override
 Widget build(BuildContext context) {
-  return AsyncBuilder<User>(
-    state: context.select(
-      (UserProfileViewModel vm) => vm.state.user,
-    ),
-    builder: (_, user) => Text(user.name),
+  final asyncUser = context.select(
+    (UserProfileViewModel vm) => vm.state.user,
   );
+  return switch (asyncUser) {
+    AsyncLoading() => const Text('...'),
+    AsyncError(:final error) => Text('Error: $error'),
+    AsyncData(value: final user) => Text(user.name),
+  };
 }
 ```

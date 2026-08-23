@@ -16,7 +16,7 @@ description: Wire one-time UI side effects (snackbars, navigation, dialogs, vibr
 
 A Chassis ViewModel exposes two channels: a `state` (observable, persistent) and an `events` stream (one-shot, ephemeral). Events fire once per emission, regardless of widget rebuilds, and feed into UI side effects that should not replay: showing a snackbar, navigating to another screen, popping a dialog, triggering haptic feedback.
 
-Events are produced inside the ViewModel with `sendEvent(<EventVariant>)`. Listeners consume them through one of three strategies:
+Events are produced inside the ViewModel with `sendEvent(<EventVariant>)` — typically from the `onSuccess`/`onError` callbacks of a `run`/`read` dispatch (see `chassis-create-view-model`). **Failure events carry the error object** (`final Object error`), never `error.toString()`: a string-ified error destroys pattern matching, and the listener can no longer branch on the error type to translate it. Listeners consume events through one of three strategies:
 
 - **`ViewModelProvider.withEventListener<TViewModel, TEvent>`** at the provision site — co-locates the listener with where the ViewModel is created. The practical default.
 - **`EventListener<TViewModel, TEvent>`** — a widget wrapping a descendant subtree; the event-side counterpart of `AsyncBuilder`.
@@ -46,7 +46,7 @@ All three strategies are correct; they apply at different points in the widget t
 
 ```dart
 ViewModelProvider.withEventListener<CheckoutViewModel, CheckoutEvent>(
-  create: (_) => CheckoutViewModel(mediator),
+  create: (_) => CheckoutViewModel(),
   onEvent: (context, viewModel, event) { /* ... */ },
   child: const CheckoutScreen(),
 );
@@ -79,10 +79,11 @@ Use `withEventListener` whenever the listener can live at the provision site. Re
 
 - **DO** define events as a `sealed class <Feature>Event` with one variant per kind of one-shot occurrence. *Sealed unions enable exhaustive `switch` at the listener and carry payloads via pattern destructuring.*
 - **DO** emit events from inside the ViewModel using `sendEvent(<EventVariant>)`.
+- **DO** carry the error object in failure event variants (`class const PaymentFailedEvent(final Object error) implements CheckoutEvent;`). *The listener pattern-matches on the error type to pick the dialog, translation, or retry affordance; `error.toString()` destroys that.*
 - **DO** prefer `ViewModelProvider.withEventListener<T, E>` for the listener when the provision site is also the right place to handle the side effect. *It co-locates creation and consumption, runs eagerly so construction-time events are not missed, and disposes automatically.*
 - **DO** use the `EventListener` widget when a descendant subtree needs to react to an ancestor-provided ViewModel's events, and `EventListenerMixin` when that listener additionally needs access to local `State` fields (controllers, focus nodes, scroll positions).
 - **DO** pattern-match on the sealed event type with a `switch` and destructure payloads (`case PaymentSuccessEvent(:final orderId): ...`). *The compiler enforces exhaustive handling.*
-- **DO** route command failures through events when the screen still has valid content (`onError: (e) => sendEvent(<FailedEvent>(e))`). *A failed save should not blow away the form.* See `chassis-handle-errors`.
+- **DO** route command failures through events when the screen still has valid content (`onError: (error, stack) => sendEvent(<FailedEvent>(error))`). *A failed save should not blow away the form.* See `chassis-handle-errors`.
 - **DON'T** model one-time occurrences as nullable state fields (`String? snackbarMessage`, `String? navigationRoute`, `bool showDialog`). *Rebuilds replay them, manual cleanup is required, the compiler cannot enforce exhaustiveness.*
 - **DON'T** call `context.read<TViewModel>()` inside the `withEventListener` `onEvent` callback. *The provider's context sits above the VM; use the `viewModel` argument the callback already provides.*
 - **DON'T** register two `EventListenerMixin.onEvent<T, E>(...)` calls for the same ViewModel type in the same `State`. *The mixin throws `StateError` — split into a parent/child or merge the handlers.*
@@ -91,8 +92,8 @@ Use `withEventListener` whenever the listener can live at the provision site. Re
 ## Workflow
 
 - [ ] **Step 1 — Decide if the change is an event or state.** If the answer to "should this still be visible after a rebuild?" is no, it is an event.
-- [ ] **Step 2 — Add a variant to the sealed event class** with whatever payload the listener will need. See `chassis-create-view-model` for the event class shape.
-- [ ] **Step 3 — Emit from the ViewModel.** `sendEvent(<EventVariant>(payload))` from inside `run`'s `onSuccess` / `onError`, or anywhere a one-shot occurrence is observed.
+- [ ] **Step 2 — Add a variant to the sealed event class** with whatever payload the listener will need — the error object itself for failure variants. See `chassis-create-view-model` for the event class shape.
+- [ ] **Step 3 — Emit from the ViewModel.** `sendEvent(<EventVariant>(payload))` from inside a dispatch's `onSuccess` / `onError`, or anywhere a one-shot occurrence is observed.
 - [ ] **Step 4 — Pick the listener strategy.**
   - Listener at the provision site → `ViewModelProvider.withEventListener<TVM, TEvent>` with an `onEvent` callback.
   - Listener wrapping a descendant subtree → `EventListener<TVM, TEvent>(onEvent: ..., child: ...)`.
@@ -108,13 +109,11 @@ Use `withEventListener` whenever the listener can live at the provision site. Re
 import 'package:chassis_flutter/chassis_flutter.dart';
 import 'package:flutter/material.dart';
 
-class CheckoutPage extends StatelessWidget {
-  const CheckoutPage({super.key});
-
+class const CheckoutPage({super.key}) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ViewModelProvider.withEventListener<CheckoutViewModel, CheckoutEvent>(
-      create: (_) => CheckoutViewModel(mediator),
+      create: (_) => CheckoutViewModel(),
       onEvent: (context, viewModel, event) {
         switch (event) {
           case PaymentSuccessEvent(:final orderId):
@@ -126,6 +125,8 @@ class CheckoutPage extends StatelessWidget {
               context: context,
               builder: (_) => AlertDialog(
                 title: const Text('Payment failed'),
+                // translateError is a project-level helper extension that
+                // pattern-matches on the error object — see chassis-handle-errors.
                 content: Text(context.translateError(error)),
                 actions: [
                   TextButton(
@@ -150,7 +151,7 @@ class CheckoutPage extends StatelessWidget {
 }
 ```
 
-The `viewModel` callback argument is the right way to call back into the VM — `context.read<CheckoutViewModel>()` would not find the VM since the context sits above it.
+The `viewModel` callback argument is the right way to call back into the VM — `context.read<CheckoutViewModel>()` would not find the VM since the context sits above it. Translating the error here only works because `PaymentFailedEvent` carries the error *object*.
 
 ### `EventListener` around a descendant subtree
 
@@ -174,10 +175,9 @@ The listener wraps only the subtree that cares about the events; its callback co
 ```dart
 import 'package:chassis_flutter/chassis_flutter.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
-class CartFooter extends StatefulWidget {
-  const CartFooter({super.key});
-
+class const CartFooter({super.key}) extends StatefulWidget {
   @override
   State<CartFooter> createState() => _CartFooterState();
 }
@@ -195,12 +195,16 @@ class _CartFooterState extends State<CartFooter> with EventListenerMixin {
 
   @override
   Widget build(BuildContext context) {
-    final itemCount = context.select(
-      (CheckoutViewModel vm) => vm.state.cart.valueOrNull?.length ?? 0,
+    final asyncCart = context.select(
+      (CheckoutViewModel vm) => vm.state.cart,
     );
     return Padding(
       padding: const EdgeInsets.all(16),
-      child: Text('Items: $itemCount'),
+      child: switch (asyncCart) {
+        AsyncData(value: final cart) => Text('Items: ${cart.length}'),
+        AsyncLoading() => const Text('…'),
+        AsyncError() => const Text('Cart unavailable'),
+      },
     );
   }
 }
@@ -212,41 +216,37 @@ The `CheckoutViewModel` is provided higher up the tree; the footer reads its eve
 
 ```dart
 class CheckoutViewModel extends ViewModel<CheckoutState, CheckoutEvent> {
-  CheckoutViewModel(this._mediator) : super(CheckoutState.initial());
+  CheckoutViewModel({super.mediator}) : super(CheckoutState.initial());
 
-  final AppMediator _mediator;
-
-  void payAndSubmit() {
-    setState(state.copyWith(isProcessingPayment: true));
-    run(
-      () => _mediator.submitOrder(/* ... */),
-      onSuccess: (order) {
-        setState(state.copyWith(isProcessingPayment: false));
-        sendEvent(PaymentSuccessEvent(order.id));
-        sendEvent(NavigateToOrderConfirmationEvent(order.id));
-      },
-      onError: (error) {
-        setState(state.copyWith(isProcessingPayment: false));
-        sendEvent(PaymentFailedEvent(error));
-      },
-    );
-  }
+  void payAndSubmit() => run(
+        SubmitOrderCommand(cartId: state.cartId),
+        policy: const RunPolicy.droppable(), // a double-tap cannot submit twice
+        onState: (submission) =>
+            setState(state.copyWith(submission: submission)),
+        onSuccess: (order) {
+          sendEvent(PaymentSuccessEvent(order.id));
+          sendEvent(NavigateToOrderConfirmationEvent(order.id));
+        },
+        onError: (error, stack) => sendEvent(PaymentFailedEvent(error)),
+      );
 }
 ```
 
-The form state stays intact through both branches; the events drive every UI side effect.
+The method is synchronous and expression-bodied — the command message goes straight to `run`. `onState` tracks the submission lifecycle in state (button spinner via `state.submission.isLoading`), while the events drive every UI side effect; the form state stays intact through both branches. See `chassis-create-view-model`.
 
 ### Anti-pattern: events as state fields
 
 ```dart
 // ❌ Don't do this — rebuilds replay events, manual cleanup needed.
-class BadCheckoutState {
-  final String? snackbarMessage;
-  final String? navigationRoute;
-  final bool showPaymentFailedDialog;
+class BadCheckoutState({
+  final String? snackbarMessage,
+  final String? navigationRoute,
+  final bool showPaymentFailedDialog = false,
   // ...
-}
+});
+```
 
+```dart
 // In ViewModel:
 void onPaymentSuccess() {
   setState(state.copyWith(snackbarMessage: 'Payment successful'));
@@ -265,19 +265,17 @@ if (message != null) {
 ```dart
 // ✅ Use the event channel
 sealed class CheckoutEvent {}
-class PaymentSuccessEvent implements CheckoutEvent {
-  const PaymentSuccessEvent(this.orderId);
-  final String orderId;
-}
 
+class const PaymentSuccessEvent(final String orderId) implements CheckoutEvent;
+```
+
+```dart
 // In ViewModel:
-void onPaymentSuccess(String orderId) {
-  sendEvent(PaymentSuccessEvent(orderId));
-}
+void onPaymentSuccess(String orderId) => sendEvent(PaymentSuccessEvent(orderId));
 
 // At provision site:
 ViewModelProvider.withEventListener<CheckoutViewModel, CheckoutEvent>(
-  create: (_) => CheckoutViewModel(mediator),
+  create: (_) => CheckoutViewModel(),
   onEvent: (context, _, event) {
     if (event case PaymentSuccessEvent(:final orderId)) {
       ScaffoldMessenger.of(context).showSnackBar(

@@ -18,23 +18,28 @@ import 'dart:isolate';
 
 Future<void> main(List<String> args) async {
   final copyRequested = args.contains('--copy');
-  final positional =
-      args.where((argument) => !argument.startsWith('--')).toList();
+  final positional = args
+      .where((argument) => !argument.startsWith('--'))
+      .toList();
   if (positional.length > 1) {
     stderr.writeln(
-        'Usage: dart run chassis:install_skills [target-dir] [--copy]');
+      'Usage: dart run chassis:install_skills [target-dir] [--copy]',
+    );
     exitCode = 64;
     return;
   }
-  final targetRoot =
-      Directory(positional.isNotEmpty ? positional.single : '.claude/skills');
+  final targetRoot = Directory(
+    positional.isNotEmpty ? positional.single : '.claude/skills',
+  );
 
   final libUri = await Isolate.resolvePackageUri(
-      Uri.parse('package:chassis/chassis.dart'));
+    Uri.parse('package:chassis/chassis.dart'),
+  );
   if (libUri == null) {
     stderr.writeln(
-        'Could not resolve package:chassis — run this from a project that '
-        'depends on chassis, after `dart pub get`.');
+      'Could not resolve package:chassis — run this from a project that '
+      'depends on chassis, after `dart pub get`.',
+    );
     exitCode = 1;
     return;
   }
@@ -43,20 +48,22 @@ Future<void> main(List<String> args) async {
   final skillsDir = Directory(_join(packageRoot.path, 'skills'));
   if (!skillsDir.existsSync()) {
     stderr.writeln(
-        'The resolved chassis package (${packageRoot.path}) ships no skills/ '
-        'directory. Skills are bundled with chassis 1.0.0 and later.');
+      'The resolved chassis package (${packageRoot.path}) ships no skills/ '
+      'directory. Skills are bundled with chassis 1.0.0 and later.',
+    );
     exitCode = 1;
     return;
   }
 
   targetRoot.createSync(recursive: true);
   var installed = 0, skipped = 0;
-  final skills = skillsDir
-      .listSync()
-      .whereType<Directory>()
-      .where((d) => File(_join(d.path, 'SKILL.md')).existsSync())
-      .toList()
-    ..sort((a, b) => a.path.compareTo(b.path));
+  final skills =
+      skillsDir
+          .listSync()
+          .whereType<Directory>()
+          .where((d) => File(_join(d.path, 'SKILL.md')).existsSync())
+          .toList()
+        ..sort((a, b) => a.path.compareTo(b.path));
 
   for (final skill in skills) {
     final name = skill.path.split(Platform.pathSeparator).last;
@@ -67,8 +74,10 @@ Future<void> main(List<String> args) async {
       // A previous install: re-point it at the currently resolved version.
       Link(targetPath).deleteSync();
     } else if (existing != FileSystemEntityType.notFound) {
-      stdout.writeln('  skipped   $name (already exists and is not a link — '
-          'remove it to reinstall)');
+      stdout.writeln(
+        '  skipped   $name (already exists and is not a link — '
+        'remove it to reinstall)',
+      );
       skipped++;
       continue;
     }
@@ -88,11 +97,15 @@ Future<void> main(List<String> args) async {
     installed++;
   }
 
-  stdout.writeln('\n$installed skill(s) installed into ${targetRoot.path}'
-      '${skipped > 0 ? ', $skipped skipped' : ''}.');
+  stdout.writeln(
+    '\n$installed skill(s) installed into ${targetRoot.path}'
+    '${skipped > 0 ? ', $skipped skipped' : ''}.',
+  );
   if (!copyRequested) {
-    stdout.writeln('Links target the resolved chassis package '
-        '(${skillsDir.path}); re-run after upgrading chassis.');
+    stdout.writeln(
+      'Links target the resolved chassis package '
+      '(${skillsDir.path}); re-run after upgrading chassis.',
+    );
   }
 }
 

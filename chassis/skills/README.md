@@ -10,18 +10,21 @@ These skills are written to be loaded by AI assistants — Claude Code, Cursor, 
 
 | Skill | Use when |
 |---|---|
-| [`chassis-bootstrap-app`](chassis-bootstrap-app/SKILL.md) | Wiring the composition root: `@ChassisApp()` (+ modules) → generated `AppMediator` → `ViewModelProvider`s, with `LoggingMiddleware` installed by default. |
-| [`chassis-register-handler-with-codegen`](chassis-register-handler-with-codegen/SKILL.md) | Adding `@chassisHandler` (unnamed constructor; dependencies as parameters, named preferred) and running `build_runner` to regenerate the mediator; decoding chassis_builder build errors. |
+| [`chassis-bootstrap-app`](chassis-bootstrap-app/SKILL.md) | Wiring the composition root: `lib/mediator.dart` carrying `@ChassisApp()` (+ modules) → generated registration-only `AppMediator` → `Chassis.initialize(AppMediator(...))` in `main()` before `runApp`, with `LoggingMiddleware`/`CrashReportingMiddleware` wired via `..addMiddleware(...)`. No global mediator variable. |
+| [`chassis-register-handler-with-codegen`](chassis-register-handler-with-codegen/SKILL.md) | Adding `@chassisHandler` (unnamed constructor; dependencies as parameters, named preferred) and running `build_runner` to regenerate the mediator's registration constructor; the missing-handler build check and `@unhandledMessage`; `@chassisModule` cross-package discovery; decoding chassis_builder build errors and warnings. |
 | [`chassis-create-command`](chassis-create-command/SKILL.md) | Adding a state-mutating operation (write, create, update, delete, submit). |
 | [`chassis-create-read-query`](chassis-create-read-query/SKILL.md) | Adding a one-time data fetch (export, validation, pre-render bootstrap). |
 | [`chassis-create-watch-query`](chassis-create-watch-query/SKILL.md) | Adding a reactive data subscription that the UI should stay in sync with. |
 | [`chassis-write-handler-test`](chassis-write-handler-test/SKILL.md) | Unit-testing a handler with mocked repository interfaces. |
-| [`chassis-create-view-model`](chassis-create-view-model/SKILL.md) | Adding a `ViewModel<State, Event>` with state, events, and Mediator dispatch. |
-| [`chassis-render-async-state`](chassis-render-async-state/SKILL.md) | Rendering an `Async<T>` value with `AsyncBuilder`. |
+| [`chassis-test-view-model`](chassis-test-view-model/SKILL.md) | Testing a ViewModel end-to-end through `TestMediator` (`package:chassis/testing.dart`): stubbing `whenRun`/`whenRead`/`whenWatch`, asserting states, events, and dispatched messages via structural equality. |
+| [`chassis-create-view-model`](chassis-create-view-model/SKILL.md) | Adding a `ViewModel<State, Event>` with state, events, and message dispatch through `run`/`read`/`watch` — no mediator field, no generated methods. |
+| [`chassis-render-async-state`](chassis-render-async-state/SKILL.md) | Rendering an `Async<T>` value — inline `switch` expression by default, `AsyncBuilder` for `maintainState` anti-flicker behavior. |
 | [`chassis-handle-view-model-events`](chassis-handle-view-model-events/SKILL.md) | Wiring one-time UI side effects (snackbars, navigation) with `ViewModelProvider.withEventListener`, the `EventListener` widget, or `EventListenerMixin`. |
 | [`chassis-consume-view-model`](chassis-consume-view-model/SKILL.md) | Providing a ViewModel and reading it from descendants (`watch` vs `read`). |
 | [`chassis-handle-errors`](chassis-handle-errors/SKILL.md) | Mapping infrastructure exceptions, recovering selectively in handlers, routing errors through state vs events, translating in the UI. |
 | [`chassis-organize-feature`](chassis-organize-feature/SKILL.md) | Laying out the directory and file structure for a feature, or extracting one into a shared `@chassisModule` package. |
+| [`chassis-optimistic-update`](chassis-optimistic-update/SKILL.md) | Making a toggle/favorite/reorder feel instant: result-field optimism (`optimistic:`) vs repository-level optimism for watched projections, with the rollback contract and its traps. |
+| [`chassis-paginate-list`](chassis-paginate-list/SKILL.md) | Infinite scroll / load-more: cursor in state, `RunPolicy.sequential`, accumulation, and loading-more rendered from `AsyncLoading(previous:)`. |
 
 ## How to install in your agent
 
@@ -67,13 +70,16 @@ When `docs/coding_rules.md`, `docs/error_management.md`, or `docs/04_ui_integrat
 Run the verification checks before opening a PR:
 
 ```bash
-# Voice check — should return zero hits
-grep -ri 'easy\|magic\|simply\|just' chassis/skills/
+# Voice check — should return zero hits.
+# --include=SKILL.md keeps this README (which must name the banned words)
+# out of the results.
+grep -rin 'easy\|magic\|simply\|just' --include=SKILL.md chassis/skills/
 
 # Removed-API check — should return zero hits (symbols deleted in 1.0.0).
 # The bracketed first letters keep this command from matching itself.
 grep -rn 'generate[Q]ueryHandler\|generate[C]ommandHandler\|[R]epositoryGenerator\|repository[_]builder\|mediator[_]name\|output[_]name\|app[_]mediator\.dart' chassis/skills/
 
-# English-only check — eyeball-grep for stray French
-grep -ri '[éèêàç]' chassis/skills/ | grep -v '/SKILL.md:.*  *—' # em-dashes are ok
+# English-only check — should return zero hits.
+# --include keeps this command from matching its own character class.
+grep -rin '[éèêàç]' --include=SKILL.md chassis/skills/
 ```
