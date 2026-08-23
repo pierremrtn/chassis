@@ -1,6 +1,6 @@
 # UI Integration
 
-This guide focuses on the Presentation layer—connecting business logic to Flutter widgets through ViewModels, reactive state management, and event handling. You'll learn how ViewModels transform domain data into UI-ready state, how AsyncBuilder renders asynchronous data without manual state checking, and how to handle one-time events like navigation or snackbars. By the end, you'll understand the unidirectional data flow pattern that makes UI complexity scale linearly with feature complexity rather than exponentially.
+This guide focuses on the Presentation layer—connecting business logic to Flutter widgets through ViewModels, reactive state management, and event handling. You'll learn how ViewModels transform domain data into UI-ready state by dispatching message objects, how to render asynchronous data with exhaustive `switch` expressions (and when to reach for AsyncBuilder instead), and how to handle one-time events like navigation or snackbars. By the end, you'll understand the unidirectional data flow pattern that makes UI complexity scale linearly with feature complexity rather than exponentially.
 
 ## The ViewModel Pattern
 
@@ -8,7 +8,7 @@ This guide focuses on the Presentation layer—connecting business logic to Flut
 
 In the Chassis architecture, ViewModels serve as the bridge between business logic and the widget tree, as explained in the layered architecture from [Core Architecture](01_core_architecture.md#layered-architecture). Their primary responsibility is state transformation—converting raw domain data into a format the UI can render directly without additional processing. Unlike traditional controllers that might manipulate widgets, ViewModels emit state changes and widgets rebuild reactively in response.
 
-ViewModels manage three distinct concerns. First, they hold the current UI state and notify listeners when it changes through Flutter's ChangeNotifier mechanism. Second, they translate user actions into Commands or Queries and dispatch them through the Mediator. Third, they emit events for one-time occurrences like showing snackbars or navigating, keeping these separate from persistent state.
+ViewModels manage three distinct concerns. First, they hold the current UI state and notify listeners when it changes through Flutter's ChangeNotifier mechanism. Second, they translate user actions into Commands or Queries and dispatch the message objects themselves through `run()`, `read()`, and `watch()`. Third, they emit events for one-time occurrences like showing snackbars or navigating, keeping these separate from persistent state.
 
 ```dart
 class UserProfileState {
@@ -31,7 +31,7 @@ class UserProfileState {
   }
 
   static UserProfileState initial() {
-    return UserProfileState(
+    return const UserProfileState(
       user: Async.loading(),
       isEditing: false,
     );
@@ -40,50 +40,60 @@ class UserProfileState {
 
 sealed class UserProfileEvent {}
 
-class UserUpdatedEvent implements UserProfileEvent {
+final class UserUpdatedEvent implements UserProfileEvent {
   const UserUpdatedEvent();
 }
 
-class UserUpdateFailedEvent implements UserProfileEvent {
-  const UserUpdateFailedEvent(this.message);
-  final String message;
+final class UserUpdateFailedEvent implements UserProfileEvent {
+  const UserUpdateFailedEvent(this.error);
+
+  /// The error object itself — never `error.toString()`, which would
+  /// destroy pattern matching on domain error types.
+  final Object error;
 }
 
-class UserProfileViewModel extends ViewModel<UserProfileState, UserProfileEvent> {
-  UserProfileViewModel(this._mediator) : super(UserProfileState.initial());
+class UserProfileViewModel
+    extends ViewModel<UserProfileState, UserProfileEvent> {
+  UserProfileViewModel({super.mediator}) : super(UserProfileState.initial());
 
-  final AppMediator _mediator;
+  // watch is keyed by the query's runtime type: calling loadUser again with
+  // a new userId replaces the previous subscription instead of stacking a
+  // second one. current carries the existing data through the loading
+  // emission.
+  void loadUser(String userId) => watch(
+        WatchUserQuery(userId: userId),
+        current: state.user,
+        onState: (user) => setState(state.copyWith(user: user)),
+      );
 
-  void loadUser(String userId) {
-    // onState receives every transition: loading, data, and error.
-    // The key makes a later call with a new userId replace this subscription;
-    // current carries the existing data through the loading emission.
-    watch(
-      _mediator.watchUser(userId: userId),
-      key: #user,
-      current: state.user,
-      onState: (asyncUser) {
-        setState(state.copyWith(user: asyncUser));
-      },
-    );
-  }
+  // onSuccess/onError fire additively for their respective outcome.
+  void updateEmail(String userId, String newEmail) => run(
+        UpdateUserEmailCommand(userId: userId, newEmail: newEmail),
+        onSuccess: (_) => sendEvent(const UserUpdatedEvent()),
+        onError: (error, stack) => sendEvent(UserUpdateFailedEvent(error)),
+      );
 
-  void updateEmail(String userId, String newEmail) {
-    // onSuccess/onError fire additively for their respective outcome
-    run(
-      () => _mediator.updateUserEmail(userId: userId, newEmail: newEmail),
-      onSuccess: (_) => sendEvent(UserUpdatedEvent()),
-      onError: (error) => sendEvent(UserUpdateFailedEvent(error.toString())),
-    );
-  }
-
-  void toggleEditMode() {
-    setState(state.copyWith(isEditing: !state.isEditing));
-  }
+  void toggleEditMode() =>
+      setState(state.copyWith(isEditing: !state.isEditing));
 }
 ```
 
-State immutability ensures predictable behavior. The `copyWith` pattern creates new state objects rather than mutating existing ones, which simplifies debugging and prevents subtle bugs from shared mutable state. Local UI state like `isEditing` lives in the ViewModel, while domain data like user profiles flows through the Mediator from handlers. The ViewModel keeps a field typed as the generated `AppMediator` so it can call the typed dispatch methods; only the initial state is passed to `super`.
+State immutability ensures predictable behavior. The `copyWith` pattern creates new state objects rather than mutating existing ones, which simplifies debugging and prevents subtle bugs from shared mutable state. Local UI state like `isEditing` lives in the ViewModel, while domain data like user profiles flows through the Mediator from handlers.
+
+Notice what the ViewModel does *not* contain: a mediator field. `run()`, `read()`, and `watch()` dispatch the message through the mediator installed once at startup, before `runApp`:
+
+```dart
+void main() {
+  Chassis.initialize(AppMediator(
+    userRepository: FirebaseUserRepository(),
+  ));
+  runApp(const MyApp());
+}
+```
+
+`AppMediator` is the generated mediator — a registration constructor that takes handler dependencies and wires every handler (see [Code Generation](03_code_generation.md)). ViewModels never reference it as a type: they dispatch message objects, and the installed mediator routes them. The constructor's `mediator:` parameter overrides the global one and is the testing seam — `UserProfileViewModel(mediator: fakeMediator)` — so tests never touch `Chassis.initialize`. Dispatching without either produces an actionable `StateError` telling you to initialize.
+
+Notice also the shape of the methods: every ViewModel method is synchronous and expression-bodied. All asynchrony lives in the dispatch machinery — a ViewModel never awaits.
 
 ### Unidirectional Data Flow
 
@@ -121,95 +131,128 @@ graph TB
 
 This pattern creates a predictable loop: interaction → command → handler → repository → state update → widget rebuild. Data flows in one direction, making it easy to trace how user actions affect state and how state changes trigger UI updates. If the UI displays incorrect data, you can trace backward through this flow—check the state, check ViewModel updates, check handler logic, check repository implementation.
 
-Unlike traditional controllers that might manipulate widgets directly, a Chassis ViewModel relies exclusively on state mutation. When a user taps a button, the ViewModel does not modify the view directly. Instead, it dispatches a command to the Mediator and updates its internal state based on the result. The widget observes this state change and rebuilds accordingly.
+Unlike traditional controllers that might manipulate widgets directly, a Chassis ViewModel relies exclusively on state mutation. When a user taps a button, the ViewModel does not modify the view directly. Instead, it dispatches a command through the Mediator and updates its internal state based on the result. The widget observes this state change and rebuilds accordingly.
 
-### Lifecycle Methods
+### Platform Async Lives in the Widget
 
-ViewModels provide two methods for handling asynchronous operations: `run()` for futures and `watch()` for streams. `run()` takes a closure returning a `Future<T>` (typically a call to a typed method of the generated mediator) so that dispatch can be deferred or skipped by a `RunPolicy`; `watch()` takes a raw `Stream<T>`. Both provide callbacks to handle state updates.
+ViewModels are await-free, so where does platform asynchrony go — image pickers, permission requests, biometrics, share sheets? In the widget. The widget awaits the platform API, guards its `BuildContext` after the await (the `use_build_context_synchronously` lint enforces this), guards against double-taps, and then hands *plain data* to a synchronous ViewModel method:
+
+```dart
+class _ChangeAvatarButtonState extends State<ChangeAvatarButton> {
+  bool _picking = false;
+
+  Future<void> _pickAvatar() async {
+    setState(() => _picking = true);
+    try {
+      final file = await ImagePicker().pickImage(source: ImageSource.gallery);
+      // The widget resumed after an await: guard the context before using it.
+      if (!context.mounted || file == null) return;
+      context.read<UserProfileViewModel>().changeAvatar(file);
+    } finally {
+      if (mounted) setState(() => _picking = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ElevatedButton(
+      // Disabled while the picker is open: two concurrent pickImage calls
+      // throw PlatformException(already_active).
+      onPressed: _picking ? null : _pickAvatar,
+      child: const Text('Change avatar'),
+    );
+  }
+}
+```
+
+The ViewModel side stays synchronous — it receives the picked file as data and dispatches a command:
+
+```dart
+void changeAvatar(XFile file) => run(
+      UpdateAvatarCommand(file.path),
+      current: state.user,
+      onState: (user) => setState(state.copyWith(user: user)),
+    );
+```
+
+This split keeps responsibilities clean: the widget owns the platform conversation (which is inherently tied to UI lifecycle — a picker outliving its screen is a bug), and the ViewModel owns the business consequence. Business asynchrony — network, database — never surfaces in either: it lives in handlers, behind the dispatch.
+
+### Dispatching Messages
+
+ViewModels provide three dispatch methods, one per message kind: `run()` for a `Command`, `read()` for a `ReadQuery`, and `watch()` for a `WatchQuery`. Each takes the message object itself — not a closure, not a stream — plus callbacks that report the operation's lifecycle as `Async<T>` states. Handing the framework the message (rather than an already-started future) is what lets a `RunPolicy` debounce, drop, or queue the dispatch.
 
 #### The watch() Method
 
-The `watch()` method subscribes to a stream, calling the provided callbacks as the stream emits. Subscription management happens automatically—the ViewModel disposes subscriptions when it disposes, preventing memory leaks. Use watch for data that changes over time, like todo lists, presence indicators, or collaborative document state.
+The `watch()` method dispatches a `WatchQuery` and manages the resulting subscription, calling the provided callbacks as the stream emits. Subscription management happens automatically—the ViewModel cancels subscriptions when it disposes, preventing memory leaks. Use watch for data that changes over time, like todo lists, presence indicators, or collaborative document state.
 
 ```dart
 class ExampleViewModel extends ViewModel<ExampleState, ExampleEvent> {
   // Using onState for full lifecycle control
-  void watchUser(String userId) {
-    watch(
-      _mediator.watchUser(userId: userId),
-      key: #user,
-      current: state.user,
-      onState: (asyncUser) {
-        setState(state.copyWith(user: asyncUser));
-      },
-    );
-  }
+  void watchUser(String userId) => watch(
+        WatchUserQuery(userId: userId),
+        current: state.user,
+        onState: (user) => setState(state.copyWith(user: user)),
+      );
 }
 ```
 
-Two optional parameters shape the subscription's behavior:
+Optional parameters shape the subscription's behavior:
 
-- **`key:`** — a new `watch()` with the same key cancels and replaces the previous subscription. This is the canonical way to re-watch when arguments change (`key: #user` above: calling `watchUser` with a new id swaps the subscription instead of stacking a second one). Without a key, subscriptions are additive and live until the ViewModel is disposed or the returned `WatchHandle` is cancelled.
+- **`key:`** — defaults to the query's runtime type. A new `watch()` with the same key cancels and replaces the previous subscription, so re-watching the same query class with new arguments (calling `watchUser` with a new id above) swaps the subscription instead of stacking a second one. To watch several instances of the same query class concurrently, pass distinct explicit keys — e.g. `key: (WatchUserQuery, userId)` — which makes the watches additive. Additive subscriptions live until the ViewModel is disposed or the returned `WatchHandle` is cancelled.
 - **`current:`** — the current `Async<T>` state, if any. The initial loading emission and error transitions carry its data, so a re-watch never blanks the UI.
 - **`emitLoading:`** — whether to emit an `AsyncLoading` immediately on subscription (default `true`). Pass `false` when re-watching in the background and the UI should keep rendering the current data untouched until fresh data arrives.
 - **`onDone:`** — invoked when the stream itself completes, never on cancellation (keyed replacement, `WatchHandle.cancel`, or disposal). Infinite streams (Firestore-style watchers) never trigger it; for finite streams it is the only signal that no further emissions will come — without it the state stays frozen on the last data. The subscription is released before `onDone` runs, so starting a replacement `watch()` under the same key from inside the callback is safe.
 
-If the stream itself emits an error, `watch()` reports a *soft error*: the emitted `AsyncError` carries the last known data, keeping content on screen through transient stream failures.
+If the stream emits an error, `watch()` reports a *soft error*: the emitted `AsyncError` carries the last known data, keeping content on screen through transient stream failures. The `onError` callback receives `(Object error, StackTrace stack)`. The same protection covers dispatch itself: a handler that throws synchronously (a non-`async*` handler failing) reports a soft `AsyncError` through the callbacks and returns an already-cancelled handle — never a crash at the call site.
 
-#### The run() Method
+#### The run() and read() Methods
 
-The `run()` method executes an async operation and handles the result, commonly used for one-time operations like data fetches or commands. Use this for initial data loads, mutations, or any operation that completes once rather than streaming updates. It accepts the same `current:` and `emitLoading:` parameters as `watch()` (`emitLoading: false` makes a background refresh silent until it completes) and returns the final `Async<R>` state.
+`run()` dispatches a `Command`; `read()` dispatches a `ReadQuery`. They are identical in every parameter and guarantee — use the one that matches the message kind. Both accept the same `current:` and `emitLoading:` parameters as `watch()` (`emitLoading: false` makes a background refresh silent until it completes) and return the final `Async<R>` state. For mutations whose outcome is known upfront, both also accept an `optimistic:` value (see [Optimistic Updates](#optimistic-updates)).
 
 ```dart
 class ExampleViewModel extends ViewModel<ExampleState, ExampleEvent> {
-  // Using onState for one-time fetch; current carries data through a refetch
-  void loadUser(String userId) {
-    run(
-      () => _mediator.getUser(userId: userId),
-      current: state.user,
-      onState: (asyncUser) {
-        setState(state.copyWith(user: asyncUser));
-      },
-    );
-  }
+  // read() for a one-time fetch; current carries data through a refetch,
+  // and restartable lets a newer read supersede the in-flight one.
+  void loadUser(String userId) => read(
+        GetUserQuery(userId: userId),
+        policy: const RunPolicy.restartable(),
+        current: state.user,
+        onState: (user) => setState(state.copyWith(user: user)),
+      );
 
-  // Using onSuccess/onError for command execution
-  void deleteUser(String userId) {
-    run(
-      () => _mediator.deleteUser(userId: userId),
-      onSuccess: (_) => sendEvent(UserDeletedEvent()),
-      onError: (error) => sendEvent(UserDeleteFailedEvent(error.toString())),
-    );
-  }
+  // run() for a command; the failure event carries the error object.
+  void deleteUser(String userId) => run(
+        DeleteUserCommand(userId: userId),
+        onSuccess: (_) => sendEvent(const UserDeletedEvent()),
+        onError: (error, stack) => sendEvent(UserDeleteFailedEvent(error)),
+      );
 }
 ```
 
+Any dispatch failure — a handler throwing synchronously or asynchronously, even a wiring error — is reported as an `AsyncError` through the same callbacks, never as an exception at the call site. Awaiting the returned `Future<Async<R>>` is therefore always safe: it never throws.
+
 #### Concurrency: key and RunPolicy
 
-Two overlapping `run()` calls writing to the same state field race: the last completion wins, and that may be the *oldest* dispatch (network timing is arbitrary). Give such runs a `key` and a `RunPolicy` to decide who wins:
+Two overlapping `run()` calls writing to the same state field race: the last completion wins, and that may be the *oldest* dispatch (network timing is arbitrary). A `RunPolicy` decides who wins among runs sharing a key:
 
 ```dart
 // Search field: latest wins, and bursts of keystrokes coalesce.
-void search(String terms) {
-  run(
-    () => _mediator.searchUsers(terms: terms),
-    key: #search,
-    policy: const RunPolicy.restartable(debounce: Duration(milliseconds: 300)),
-    current: state.results,
-    onState: (results) => setState(state.copyWith(results: results)),
-  );
-}
+// The key defaults to SearchUsersQuery, so every dispatch of this
+// query class shares the policy — no explicit key needed.
+void search(String terms) => read(
+      SearchUsersQuery(terms: terms),
+      policy: const RunPolicy.restartable(debounce: Duration(milliseconds: 300)),
+      current: state.results,
+      onState: (results) => setState(state.copyWith(results: results)),
+    );
 
 // Submit button: first wins, a double-tap cannot dispatch twice.
-void submitOrder() {
-  run(
-    () => _mediator.submitOrder(cart: state.cart),
-    key: #submit,
-    policy: const RunPolicy.droppable(),
-    onSuccess: (_) => sendEvent(OrderSubmittedEvent()),
-    onError: (error) => sendEvent(OrderFailedEvent(error.toString())),
-  );
-}
+void submitOrder() => run(
+      SubmitOrderCommand(cart: state.cart),
+      policy: const RunPolicy.droppable(),
+      onSuccess: (_) => sendEvent(const OrderSubmittedEvent()),
+      onError: (error, stack) => sendEvent(OrderFailedEvent(error)),
+    );
 ```
 
 A policy answers one question — when several runs collide on a key, who wins?
@@ -221,79 +264,106 @@ A policy answers one question — when several runs collide on a key, who wins?
 | `RunPolicy.droppable()` | The first — later calls don't dispatch and resolve with the in-flight result | Submit buttons, anything a double-tap must not repeat |
 | `RunPolicy.sequential()` | Everyone, in call order (queued per key) | Ordered mutations |
 
-There is no separate "debounce" policy: debouncing alone would not fix result races (two dispatches separated by more than the window can still complete out of order), so the debounce window is a parameter of `restartable`. Every policy except `concurrent` requires a `key`, and all runs sharing a key must have the same result type. Superseded and dropped calls still resolve — with their own result (`restartable`) or the winner's (`droppable`, coalesced `debounce`) — so awaiting `run()` is always safe.
+The `key` defaults to the message's runtime type, so two dispatches of the same message class already interact under the same policy. Pass an explicit `key` to separate them (per-entity keys like `key: (SetFavoriteCommand, articleId)`) or to make *different* message types share a policy. All runs sharing a key must have the same result type — asserted in debug mode.
 
-`watch()` gets the same protection from its `key` parameter: a new keyed watch replaces the previous subscription.
+There is no separate "debounce" policy: debouncing alone would not fix result races (two dispatches separated by more than the window can still complete out of order), so the debounce window is a parameter of `restartable`. Superseded and dropped calls still resolve — with their own result (`restartable`) or the winner's (`droppable`, coalesced `debounce`) — so awaiting `run()` is always safe.
+
+One caveat deserves emphasis: **`restartable` does not cancel the underlying execution** — only the superseded run's callbacks are cut. The superseded network call completes and its side effects land (a superseded POST still hits the server); it just stops reporting state. That makes `restartable` a fit for reads and idempotent refetches, not for mutations where a duplicate execution would be harmful — reach for `droppable` or `sequential` there. Note also that `sequential` captures `current:` when `run()` is *called*, not when the queued operation starts — prefer reading fresh state inside `onState`.
+
+`watch()` gets the same protection from its `key`: a new watch on the same key (by default, the same query class) replaces the previous subscription.
+
+#### Optimistic Updates
+
+For mutations whose outcome is known upfront (toggle a favorite, check a task), `run()` accepts an `optimistic:` parameter. At dispatch, `onState` receives that `AsyncData` *instead of* a loading state — the field takes the expected value immediately. `onSuccess`/`onError` still fire only for the real result:
+
+```dart
+void toggleFavorite() {
+  final article = state.article.requireValue;
+  final toggled = article.copyWith(isFavorite: !article.isFavorite);
+  run(
+    SetFavoriteCommand(articleId: article.id, value: toggled.isFavorite),
+    policy: const RunPolicy.droppable(),
+    current: state.article,
+    optimistic: AsyncData(toggled),
+    onState: (article) => setState(state.copyWith(article: article)),
+    onError: (error, stack) => sendEvent(FavoriteFailedEvent(error)),
+  );
+}
+```
+
+The encoding is honest: the field really *is* `AsyncData`, so the UI renders the value with zero optimism-specific code. If a screen must visually mark the value as "unconfirmed", that is not optimistic UI anymore — model the status in the domain (e.g. a `pending` flag on the entity) or use the normal loading pipeline.
+
+On failure, the emitted `AsyncError.previous` is the last *confirmed* data — the latest completion of a run on the same `key`, or the data carried by `current:` at dispatch — never the optimistic value. Rendering `previous` on error (as usual) therefore rolls the UI back automatically. Pair with `RunPolicy.droppable()` — the key already defaults to the command's class — so a double-tap cannot dispatch the mutation twice.
+
+Two boundaries:
+
+- `optimistic:` is typed `AsyncData<R>?`, not `R?`: for a nullable `R`, `optimistic: AsyncData(null)` ("optimistically cleared") stays distinct from omitting the parameter.
+- `watch()` has no `optimistic:` — the stream's next emission would immediately overwrite it. Optimism for watched data belongs in the repository: emit the patched value on the stream, reconcile when the server answers.
 
 #### Callback Patterns
 
-Both `run()` and `watch()` share one callback contract:
+`run()`, `read()`, and `watch()` share one callback contract:
 
 - `onState` (if provided) fires for **every** transition — loading, data, and error — with the corresponding `Async<T>` value.
-- `onSuccess` (on `run`) / `onData` (on `watch`) and `onError` are **additive** conveniences, invoked *after* `onState` for their respective transition. Providing them never suppresses `onState`. They carry the same value — a `run` result is a *success*, a `watch` emission is *data*.
+- `onSuccess` (on `run`/`read`) / `onData` (on `watch`) and `onError` are **additive** conveniences, invoked *after* `onState` for their respective transition. Providing them never suppresses `onState`. They carry the same value — a `run` result is a *success*, a `watch` emission is *data* — a deliberate naming asymmetry.
+- `onError` receives `(Object error, StackTrace stack)` everywhere.
 - At least one callback must be provided.
 - Callbacks run outside the framework's error handling: an exception thrown by your callback is a bug in the callback and propagates as such — it is never converted into an `AsyncError`.
 
+One rule dominates the rest: **the error path must always be covered**. Every `run()`/`read()` call needs `onState` (which receives error transitions) or `onError`. `onSuccess` alone compiles, but a failure then evaporates — no state transition consumed, no event fired:
+
+```dart
+// ❌ The "invisible failure" anti-pattern: a failed creation is silent.
+run(
+  CreateUserCommand(name: name, email: email),
+  onSuccess: (user) => sendEvent(UserCreatedEvent(user)),
+);
+```
+
 Choose the combination that matches the call site:
 
-**onState** - Full lifecycle control with `Async<T>`:
+**onState** — full lifecycle control with `Async<T>`, error path included:
 ```dart
-run(
-  () => _mediator.getUser(userId: userId),
-  onState: (asyncUser) {
-    // Receives Async<User> for all states (loading, data, error)
-    setState(state.copyWith(user: asyncUser));
-  },
+read(
+  GetUserQuery(userId: userId),
+  current: state.user,
+  onState: (user) => setState(state.copyWith(user: user)),
 );
 ```
 
-Use `onState` when you need to handle the complete async lifecycle in your state, such as showing loading indicators or maintaining previous data during refetches.
+Use `onState` when the state should reflect the complete async lifecycle — loading indicators, previous data during refetches, rendered errors.
 
-**onSuccess** - Success callback with the unwrapped value:
+**onSuccess + onError** — outcome callbacks with unwrapped values:
 ```dart
 run(
-  () => _mediator.createUser(name: name, email: email),
-  onSuccess: (user) {
-    // Called on success with the unwrapped User
-    setState(state.copyWith(user: Async.data(user)));
-    sendEvent(UserCreatedEvent(user));
-  },
+  CreateUserCommand(name: name, email: email),
+  onSuccess: (user) => sendEvent(UserCreatedEvent(user)),
+  onError: (error, stack) => sendEvent(UserCreationFailedEvent(error)),
 );
 ```
 
-Use `onSuccess` when you only care about successful results and want to work with the unwrapped value directly. (`watch` names the equivalent callback `onData`: a stream emission is data, not a success.)
+Use this pair for fire-and-forget commands whose outcome maps to events rather than state. The failure event carries the error *object* — handing `error.toString()` to an event would destroy pattern matching downstream.
 
-**onError** - Failure callback with the raw error:
+**All three** — mirror the lifecycle in state while dispatching one-time events on the outcome:
 ```dart
 run(
-  () => _mediator.updateUser(userId: userId, data: data),
-  onError: (error) {
-    // Called on failure
-    sendEvent(UpdateFailedEvent(error.toString()));
-  },
+  DeleteUserCommand(userId: userId),
+  current: state.user,
+  onState: (user) => setState(state.copyWith(user: user)),
+  onSuccess: (_) => sendEvent(const UserDeletedEvent()),
+  onError: (error, stack) => sendEvent(UserDeleteFailedEvent(error)),
 );
 ```
 
-Use `onError` for error handling, often combined with `onSuccess` for clean separation of success and failure cases.
-
-**Combined callbacks**:
-```dart
-run(
-  () => _mediator.deleteUser(userId: userId),
-  onSuccess: (_) => sendEvent(UserDeletedEvent()),
-  onError: (error) => sendEvent(UserDeleteFailedEvent(error.toString())),
-);
-```
-
-Combine `onSuccess` and `onError` when you need different behavior for success and failure but don't need to handle the loading state explicitly. Because the callbacks are additive, you can also keep `onState` alongside them — for example to mirror the full lifecycle in state while dispatching one-time events on the outcome.
+Because the callbacks are additive, combining them costs nothing: `onState` keeps the rendering truthful, `onSuccess`/`onError` trigger the side effects.
 
 #### Resource Lifecycle Helpers
 
-Beyond `run()`/`watch()`, the `BaseUtils` extension ties arbitrary resources to the ViewModel's lifecycle, so cleanup lives on the line that creates the resource instead of accumulating in `dispose()`:
+Beyond the dispatch methods, the `BaseUtils` extension ties arbitrary resources to the ViewModel's lifecycle, so cleanup lives on the line that creates the resource instead of accumulating in `dispose()`:
 
 ```dart
 class ExampleViewModel extends ViewModel<ExampleState, ExampleEvent> {
-  ExampleViewModel(this._mediator, TextEditingController controller)
+  ExampleViewModel(TextEditingController controller, {super.mediator})
       : super(ExampleState.initial()) {
     // Removes the listener automatically on dispose.
     listenTo(controller, _onTextChanged);
@@ -324,6 +394,7 @@ sealed class Async<T> {
   bool get hasValue;
   bool get hasError;
   T get requireValue;
+  AsyncData<T>? get maybeDataOrPrevious;
 
   // Factories
   const factory Async.data(T value) = AsyncData<T>;
@@ -350,43 +421,38 @@ class AsyncError<T> extends Async<T> {
 }
 ```
 
-AsyncLoading and AsyncError can optionally retain the previous successful state, enabling the UI to show stale data during refetches or display previous values alongside error messages. This anti-flickering capability improves user experience significantly, as discussed in the AsyncBuilder section.
+AsyncLoading and AsyncError can optionally retain the previous successful state, enabling the UI to show stale data during refetches or display previous values alongside error messages. This anti-flickering capability improves user experience significantly, as discussed in the rendering section below.
 
-Note that `previous` is a full `AsyncData<T>`, not a bare `T?`. Carrying the whole state makes "a value existed" provable by the type system even when `T` is nullable and the value itself is `null`: `Async<int?>.data(null)` has `hasValue == true`. For the same reason, prefer `hasValue` (or pattern matching) over null-checking `valueOrNull` when `T` is nullable. All variants implement `==` and `hashCode`, so state comparisons behave as expected.
+Note that `previous` is a full `AsyncData<T>`, not a bare `T?`. Carrying the whole state makes "a value existed" provable by the type system even when `T` is nullable and the value itself is `null`: `Async<int?>.data(null)` has `hasValue == true`. For the same reason, prefer `hasValue` (or pattern matching) over null-checking `valueOrNull` when `T` is nullable — and never collapse the error path with `valueOrNull ?? fallback`, which renders a failure as if it were data. All variants implement `==` and `hashCode`, so state comparisons behave as expected.
 
 ### Pattern Matching
 
 Dart 3's pattern matching makes working with Async<T> concise and type-safe. The sealed class ensures exhaustive checking—the compiler requires handling all three cases when switching on Async<T> values.
 
 ```dart
-// In ViewModel - Using onState with pattern matching
-void loadUser(String userId) {
-  run(
-    () => _mediator.getUser(userId: userId),
-    onState: (asyncUser) {
-      switch (asyncUser) {
-        case AsyncLoading():
-          setState(state.copyWith(user: asyncUser));
-        case AsyncData(:final value):
-          setState(state.copyWith(user: asyncUser));
-          sendEvent(UserLoadedEvent(value));
-        case AsyncError(:final error):
-          setState(state.copyWith(user: asyncUser));
-          sendEvent(UserLoadFailedEvent(error.toString()));
-      }
-    },
-  );
-}
+// In ViewModel — onState with pattern matching for per-transition effects
+void loadUser(String userId) => read(
+      GetUserQuery(userId: userId),
+      onState: (asyncUser) {
+        setState(state.copyWith(user: asyncUser));
+        switch (asyncUser) {
+          case AsyncData(:final value):
+            sendEvent(UserLoadedEvent(value));
+          case AsyncError(:final error):
+            sendEvent(UserLoadFailedEvent(error));
+          case AsyncLoading():
+            break;
+        }
+      },
+    );
 
 // Or using additive onSuccess/onError for cleaner code
-void loadUser(String userId) {
-  run(
-    () => _mediator.getUser(userId: userId),
-    onState: (asyncUser) => setState(state.copyWith(user: asyncUser)),
-    onSuccess: (user) => sendEvent(UserLoadedEvent(user)),
-    onError: (error) => sendEvent(UserLoadFailedEvent(error.toString())),
-  );
-}
+void loadUser(String userId) => read(
+      GetUserQuery(userId: userId),
+      onState: (user) => setState(state.copyWith(user: user)),
+      onSuccess: (user) => sendEvent(UserLoadedEvent(user)),
+      onError: (error, stack) => sendEvent(UserLoadFailedEvent(error)),
+    );
 
 // Or using if-case for specific scenarios
 if (asyncUser case AsyncData(:final value)) {
@@ -412,7 +478,7 @@ final success = currentState.toData(newUser);  // AsyncData(newUser)
 final softError = currentState.toError(exception, stackTrace);  // AsyncError(..., previous: currentData)
 ```
 
-These methods preserve previous data when appropriate, enabling the UI to maintain display during refetches or show stale data with error overlays. This pattern supports the anti-flickering behavior that improves user experience during data refreshes.
+These methods preserve previous data when appropriate, enabling the UI to maintain display during refetches or show stale data with error overlays. In practice you rarely call them yourself: passing `current:` to `run()`, `read()`, or `watch()` produces these carrying states for you.
 
 ### Combinators: when() and map()
 
@@ -435,17 +501,17 @@ final label = state.user.when(
 final Async<String> name = state.user.map((user) => user.name);
 ```
 
-Also worth knowing: `hasValue` (true when a value exists, fresh or carried — correct even for nullable `T`), `valueOrNull`, and `requireValue` (throws with an actionable message when no value exists).
+Also worth knowing: `hasValue` (true when a value exists, fresh or carried — correct even for nullable `T`), `valueOrNull`, `requireValue` (throws with an actionable message when no value exists), and `maybeDataOrPrevious` (the last confirmed `AsyncData<T>` — the state itself if it is data, otherwise the carried `previous`, or `null`; unlike `valueOrNull`, the wrapper stays unambiguous for nullable `T`).
 
-## AsyncBuilder Widget
+## Rendering Async State
 
-### Basic Usage
+### The Default: an Inline switch Expression
 
-AsyncBuilder is a StatelessWidget that renders different UI based on Async<T> state, eliminating manual state checking in build methods. It takes an Async<T> state and three builders—one for data, one for loading, and one for errors—automatically selecting the appropriate builder based on current state.
+Because `Async<T>` is sealed, a `switch` expression over it is checked for exhaustiveness: the compiler forces the widget to handle `AsyncLoading`, `AsyncError`, and `AsyncData`, and destructuring extracts the payload on the same line. For simple rendering — spinner while loading, error panel on failure, content on data — this is the preferred style: three cases in plain sight, no builder indirection.
 
 ```dart
 class UserProfileScreen extends StatelessWidget {
-  const UserProfileScreen({Key? key}) : super(key: key);
+  const UserProfileScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -457,31 +523,9 @@ class UserProfileScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('User Profile')),
-      body: AsyncBuilder<User>(
-        state: asyncUser,
-        builder: (context, user) {
-          // Renders when data is available
-          return Column(
-            children: [
-              CircleAvatar(
-                backgroundImage: NetworkImage(user.avatarUrl),
-                radius: 50,
-              ),
-              const SizedBox(height: 16),
-              Text(user.name, style: Theme.of(context).textTheme.headlineMedium),
-              Text(user.email),
-              const SizedBox(height: 24),
-              Text('Member since ${user.createdAt.year}'),
-            ],
-          );
-        },
-        loadingBuilder: (context) {
-          // Renders during initial load
-          return const Center(child: CircularProgressIndicator());
-        },
-        errorBuilder: (context, error) {
-          // Renders on error with no previous data
-          return Center(
+      body: switch (asyncUser) {
+        AsyncLoading() => const Center(child: CircularProgressIndicator()),
+        AsyncError(:final error) => Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -496,19 +540,55 @@ class UserProfileScreen extends StatelessWidget {
                 ),
               ],
             ),
-          );
-        },
-      ),
+          ),
+        AsyncData(value: final user) => Column(
+            children: [
+              CircleAvatar(
+                backgroundImage: NetworkImage(user.avatarUrl),
+                radius: 50,
+              ),
+              const SizedBox(height: 16),
+              Text(user.name, style: Theme.of(context).textTheme.headlineMedium),
+              Text(user.email),
+              const SizedBox(height: 24),
+              Text('Member since ${user.createdAt.year}'),
+            ],
+          ),
+      },
     );
   }
 }
 ```
 
-The `builder` callback receives the unwrapped User object. No null checks are required—AsyncBuilder only calls this builder when data is available and successfully unwrapped. Custom `loadingBuilder` and `errorBuilder` provide branded loading and error experiences tailored to your application's design.
+Guarded cases compose naturally — `AsyncData(value: final todos) when todos.isEmpty => const EmptyState()` slots in as a fourth branch without breaking exhaustiveness.
+
+Note the three access patterns at work, each with its own job:
+
+- `context.select((UserProfileViewModel vm) => vm.state.user)` in `build` — subscribes the widget to exactly the field it renders, with the ViewModel type inferred from the closure parameter. This is the default for reading state.
+- `context.read<UserProfileViewModel>()` in callbacks — calls a method without creating a subscription.
+- `context.watch<UserProfileViewModel>()` — rebuilds on *every* state change; reserve it for a widget that genuinely consumes the whole state.
+
+### The AsyncBuilder Widget
+
+The inline switch has one blind spot: it renders each state *literally*. During a refetch the field is `AsyncLoading` — even when it carries the previous data — so the switch above flashes a spinner over content the user was just reading. When you want anti-flickering behavior (or reusable loading/error scaffolding), reach for `AsyncBuilder`:
+
+```dart
+AsyncBuilder<User>(
+  state: context.select((UserProfileViewModel vm) => vm.state.user),
+  builder: (context, user) {
+    // Receives the unwrapped User — no null checks needed.
+    return UserCard(user: user);
+  },
+  loadingBuilder: (context) => const Center(child: CircularProgressIndicator()),
+  errorBuilder: (context, error) => ErrorPanel(error: error),
+)
+```
+
+The `builder` callback receives the unwrapped value; `AsyncBuilder` only calls it when data is available. If `errorBuilder` is omitted, an error renders a standard `ErrorWidget` in debug builds — a silent default would hide failures during development — and nothing (`SizedBox.shrink`) in release builds, so always provide one for production surfaces.
 
 ### Anti-Flickering with maintainState
 
-The `maintainState` parameter, which defaults to `true`, prevents flickering during refetches by showing previous data during loading states instead of the loading widget. This creates a much smoother user experience, especially for pull-to-refresh scenarios.
+The `maintainState` parameter, which defaults to `true`, is the reason AsyncBuilder exists: it prevents flickering during refetches by showing previous data during loading states instead of the loading widget. This creates a much smoother user experience, especially for pull-to-refresh scenarios.
 
 ```dart
 AsyncBuilder<User>(
@@ -525,9 +605,9 @@ AsyncBuilder<User>(
 )
 ```
 
-Consider the visual flow through different states. On initial load with `Async.loading()` and no previous data, the `loadingBuilder` renders showing a spinner. After first load with `Async.data(user)`, the `builder` renders displaying the user profile. On refetch with `AsyncLoading(previous: AsyncData(user))`, the `builder` continues rendering with previous user data—no flicker to loading state. When refetch completes with `Async.data(newUser)`, the `builder` renders with updated user data, smoothly transitioning from old to new.
+Consider the visual flow through different states. On initial load with `Async.loading()` and no previous data, the `loadingBuilder` renders showing a spinner. After first load with `Async.data(user)`, the `builder` renders displaying the user profile. On refetch with `AsyncLoading(previous: AsyncData(user))`, the `builder` continues rendering with previous user data—no flicker to loading state. When refetch completes with `Async.data(newUser)`, the `builder` renders with updated user data, smoothly transitioning from old to new. The same holds for soft errors: an `AsyncError` carrying previous data keeps rendering the data.
 
-Producing the carrying states is the framework's job, not yours: pass `current: state.user` to `run()` or `watch()` and the loading and error emissions automatically carry the existing data (equivalent to calling `state.user.toLoading()` yourself).
+Producing the carrying states is the framework's job, not yours: pass `current: state.user` to `run()`, `read()`, or `watch()` and the loading and error emissions automatically carry the existing data (equivalent to calling `state.user.toLoading()` yourself).
 
 This pattern is ideal for pull-to-refresh scenarios where showing stale data during refresh provides better UX than a loading spinner. Users see their data immediately and can continue interacting while fresh data loads in the background. When fresh data arrives, the UI updates smoothly without jarring transitions.
 
@@ -556,17 +636,20 @@ class CheckoutState {
 // Events - Ephemeral
 sealed class CheckoutEvent {}
 
-class PaymentSuccessEvent implements CheckoutEvent {
+final class PaymentSuccessEvent implements CheckoutEvent {
   const PaymentSuccessEvent(this.orderId);
   final String orderId;
 }
 
-class PaymentFailedEvent implements CheckoutEvent {
-  const PaymentFailedEvent(this.reason);
-  final String reason;
+final class PaymentFailedEvent implements CheckoutEvent {
+  const PaymentFailedEvent(this.error);
+
+  // The error object, so the listener can pattern match on domain error
+  // types. Never carry error.toString() in an event.
+  final Object error;
 }
 
-class NavigateToOrderConfirmationEvent implements CheckoutEvent {
+final class NavigateToOrderConfirmationEvent implements CheckoutEvent {
   const NavigateToOrderConfirmationEvent(this.orderId);
   final String orderId;
 }
@@ -574,13 +657,16 @@ class NavigateToOrderConfirmationEvent implements CheckoutEvent {
 
 State determines what appears on screen right now. Events describe what should happen once in response to an action. This separation prevents bugs where snackbars show repeatedly or navigation happens multiple times due to widget rebuilds.
 
+Note the shape of `PaymentFailedEvent`: it carries the error *object* — the domain error from the handler, or a dedicated type. A ViewModel that stringifies the error at emission (`sendEvent(PaymentFailedEvent(error.toString()))`) destroys the listener's ability to branch on error types; formatting user-facing copy is the listener's job, done at the last moment.
+
 ### Listening to Events
 
 `ViewModelProvider.withEventListener` is the preferred way to listen to a ViewModel's events. It creates the ViewModel, subscribes to its event stream, and invokes your callback for each emitted event — all in one place, with automatic subscription cleanup tied to the provider's lifetime.
 
 ```dart
 ViewModelProvider.withEventListener<CheckoutViewModel, CheckoutEvent>(
-  create: (_) => CheckoutViewModel(mediator),
+  // Dispatches through the mediator installed by Chassis.initialize.
+  create: (_) => CheckoutViewModel(),
   onEvent: (context, viewModel, event) {
     switch (event) {
       case PaymentSuccessEvent(:final orderId):
@@ -588,12 +674,14 @@ ViewModelProvider.withEventListener<CheckoutViewModel, CheckoutEvent>(
           SnackBar(content: Text('Payment successful! Order #$orderId')),
         );
 
-      case PaymentFailedEvent(:final reason):
+      case PaymentFailedEvent(:final error):
         showDialog(
           context: context,
           builder: (context) => AlertDialog(
             title: const Text('Payment Failed'),
-            content: Text(reason),
+            // Map the error object to user-facing copy at the last moment,
+            // e.g. by switching on your domain error types.
+            content: Text(error.toString()),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
@@ -670,65 +758,84 @@ class BadState {
 }
 
 // After showing snackbar, must manually clear it
-viewModel.setState(state.copyWith(snackbarMessage: null));
+void onSnackbarShown() {
+  viewModel.setState(state.copyWith(snackbarMessage: null));
+}
 
 // ✅ Do this
 sealed class GoodEvent {}
 
-class ShowSnackbarEvent implements GoodEvent {
+final class ShowSnackbarEvent implements GoodEvent {
   const ShowSnackbarEvent(this.message);
   final String message;
 }
 
 // Events fire once per occurrence, regardless of rebuilds
-viewModel.sendEvent(ShowSnackbarEvent('Success!'));
+void onSaveSucceeded() {
+  viewModel.sendEvent(ShowSnackbarEvent('Success!'));
+}
 ```
 
 Events solve these problems by firing once per occurrence, regardless of rebuilds. No manual cleanup is required—events are delivered through a stream that widgets subscribe to independently of the widget rebuild cycle. This architectural separation keeps state clean and focused on what should appear on screen, while events handle what should happen once.
 
 ## Widget Testing
 
-### Testing with Mock ViewModel
+### Testing with a Fake ViewModel
 
-Widget tests verify UI rendering and user interaction handling without executing business logic, isolating the UI layer from domain concerns. Mock the ViewModel to control state and verify method calls, ensuring widgets respond correctly to different states and user interactions.
+Widget tests verify UI rendering and user interaction handling without executing business logic, isolating the UI layer from domain concerns. Substitute the ViewModel to control state and observe method calls — no mocking library required. Two seams work:
+
+1. **A hand-written fake subclass** of the real ViewModel — pin state exactly, override action methods to record calls. Because the fake *is* a real `ViewModel`, it keeps the ChangeNotifier machinery and the `events` stream the provider relies on. (This is why mockito/mocktail-style mocks of a ViewModel are a trap: the provider calls `addListener` at mount, and a mock has no real implementation behind it.)
+2. **The real ViewModel with a fake mediator** — `UserProfileViewModel(mediator: fakeMediator)` exercises the real dispatch pipeline against fake handlers. Never call `Chassis.initialize` in tests; the constructor parameter is the seam, and it always wins over the global.
+
+Either way, provide the instance with `ViewModelProvider<T>.value` — **never** `Provider<T>.value`. A ViewModel *is* a `Listenable`, and provider's `debugCheckInvalidValueType` throws at `pumpWidget` when a plain `Provider` receives one (that check exists precisely to force a listening provider, which is what `ViewModelProvider` is). Since `.value` never disposes the instance, the test owns its lifecycle — dispose it in a teardown.
 
 ```dart
 // test/widgets/user_profile_screen_test.dart
-import 'package:flutter_test/flutter_test.dart';
-import 'package:mocktail/mocktail.dart';
 import 'package:chassis_flutter/chassis_flutter.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
 
-class MockUserProfileViewModel extends Mock implements UserProfileViewModel {}
+class FakeUserProfileViewModel extends UserProfileViewModel {
+  // setState is @protected: a subclass may call it to seed any state.
+  FakeUserProfileViewModel(UserProfileState initial) {
+    setState(initial);
+  }
+
+  final List<({String userId, String newEmail})> updateEmailCalls = [];
+
+  @override
+  void loadUser(String userId) {}
+
+  @override
+  void updateEmail(String userId, String newEmail) =>
+      updateEmailCalls.add((userId: userId, newEmail: newEmail));
+}
+
+Widget wrap(UserProfileViewModel viewModel) => MaterialApp(
+      home: ViewModelProvider<UserProfileViewModel>.value(
+        value: viewModel,
+        child: const UserProfileScreen(),
+      ),
+    );
+
+final alice = User(
+  id: 'user123',
+  name: 'Alice Johnson',
+  email: 'alice@example.com',
+  avatarUrl: 'https://example.com/avatar.jpg',
+  createdAt: DateTime(2020, 1, 1),
+);
 
 void main() {
   testWidgets('displays user data when loaded', (tester) async {
     // Arrange
-    final mockViewModel = MockUserProfileViewModel();
-
-    when(() => mockViewModel.state).thenReturn(
-      UserProfileState(
-        user: Async.data(
-          User(
-            id: 'user123',
-            name: 'Alice Johnson',
-            email: 'alice@example.com',
-            avatarUrl: 'https://example.com/avatar.jpg',
-            createdAt: DateTime(2020, 1, 1),
-          ),
-        ),
-        isEditing: false,
-      ),
+    final viewModel = FakeUserProfileViewModel(
+      UserProfileState(user: Async.data(alice), isEditing: false),
     );
+    addTearDown(viewModel.dispose);
 
     // Act
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Provider<UserProfileViewModel>.value(
-          value: mockViewModel,
-          child: const UserProfileScreen(),
-        ),
-      ),
-    );
+    await tester.pumpWidget(wrap(viewModel));
 
     // Assert
     expect(find.text('Alice Johnson'), findsOneWidget);
@@ -737,93 +844,89 @@ void main() {
   });
 
   testWidgets('shows loading indicator on initial load', (tester) async {
-    // Arrange
-    final mockViewModel = MockUserProfileViewModel();
-
-    when(() => mockViewModel.state).thenReturn(
-      UserProfileState(
-        user: Async.loading(),  // No previous data
-        isEditing: false,
-      ),
+    // Arrange — no previous data
+    final viewModel = FakeUserProfileViewModel(
+      const UserProfileState(user: Async.loading(), isEditing: false),
     );
+    addTearDown(viewModel.dispose);
 
     // Act
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Provider<UserProfileViewModel>.value(
-          value: mockViewModel,
-          child: const UserProfileScreen(),
-        ),
-      ),
-    );
+    await tester.pumpWidget(wrap(viewModel));
 
     // Assert
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
   });
 
-  testWidgets('calls ViewModel.updateEmail when save button tapped', (tester) async {
+  testWidgets('calls updateEmail when save button tapped', (tester) async {
     // Arrange
-    final mockViewModel = MockUserProfileViewModel();
-
-    when(() => mockViewModel.state).thenReturn(
-      UserProfileState(
-        user: Async.data(User(
-          id: 'user123',
-          name: 'Alice',
-          email: 'alice@example.com',
-          avatarUrl: 'https://example.com/avatar.jpg',
-          createdAt: DateTime(2020, 1, 1),
-        )),
-        isEditing: true,
-      ),
+    final viewModel = FakeUserProfileViewModel(
+      UserProfileState(user: Async.data(alice), isEditing: true),
     );
-
-    when(() => mockViewModel.updateEmail(any(), any())).thenReturn(null);
+    addTearDown(viewModel.dispose);
 
     // Act
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Provider<UserProfileViewModel>.value(
-          value: mockViewModel,
-          child: const UserProfileScreen(),
-        ),
-      ),
-    );
-
+    await tester.pumpWidget(wrap(viewModel));
     await tester.enterText(find.byType(TextField), 'newemail@example.com');
     await tester.tap(find.text('Save'));
 
     // Assert
-    verify(() => mockViewModel.updateEmail('user123', 'newemail@example.com')).called(1);
+    expect(
+      viewModel.updateEmailCalls,
+      [(userId: 'user123', newEmail: 'newemail@example.com')],
+    );
   });
 }
 ```
 
-Mocking the ViewModel isolates UI tests from business logic. The test verifies rendering and interaction patterns without executing real commands or queries. Use `when()` to control ViewModel state, creating different scenarios like loading, success, and error states. Use `verify()` to assert that methods were called with expected parameters, ensuring widgets dispatch correct operations in response to user interactions.
+The fake isolates UI tests from business logic: the state you seed drives rendering scenarios (loading, success, error), and the recorded calls assert that widgets dispatch the correct operations in response to user interactions — all with plain Dart, readable at a glance.
+
+When a test should cover the real dispatch pipeline — policy behavior, `Async` transitions, callback wiring — use the second seam instead: a real ViewModel with a fake mediator carrying fake handlers.
+
+```dart
+class FakeWatchUserHandler implements WatchHandler<WatchUserQuery, User> {
+  @override
+  Stream<User> watch(WatchUserQuery query) => Stream.value(alice);
+}
+```
+
+```dart
+testWidgets('renders the user loaded through the real pipeline',
+    (tester) async {
+  final fakeMediator = Mediator()
+    ..registerQueryHandler(FakeWatchUserHandler());
+
+  final viewModel = UserProfileViewModel(mediator: fakeMediator)
+    ..loadUser('user123');
+  addTearDown(viewModel.dispose);
+
+  await tester.pumpWidget(wrap(viewModel));
+  await tester.pump(); // let the watched stream emit
+
+  expect(find.text('Alice Johnson'), findsOneWidget);
+});
+```
 
 ### Testing Event Handling
 
-Testing event-driven side effects requires simulating event emission through a `StreamController` on the mock ViewModel, allowing you to verify that widgets respond appropriately. When the widget under test is wrapped in `ViewModelProvider.withEventListener`, inject the mock through its `create:` callback and stub `dispose()` so the provider can tear down cleanly at the end of the test.
+Testing event-driven side effects requires making the ViewModel emit an event on demand. `sendEvent` is `@protected`, so a fake subclass can re-expose it — no stream controller plumbing needed, since a real ViewModel already owns a working `events` stream:
+
+```dart
+class FakeCheckoutViewModel extends CheckoutViewModel {
+  void emit(CheckoutEvent event) => sendEvent(event);
+}
+```
 
 ```dart
 testWidgets('shows snackbar on PaymentSuccessEvent', (tester) async {
   // Arrange
-  final mockViewModel = MockCheckoutViewModel();
-  final eventController = StreamController<CheckoutEvent>.broadcast();
-
-  when(() => mockViewModel.state).thenReturn(CheckoutState(
-    cart: Async.data([]),
-    shippingAddress: null,
-    isProcessingPayment: false,
-  ));
-  when(() => mockViewModel.events).thenAnswer((_) => eventController.stream);
-  when(() => mockViewModel.dispose()).thenReturn(null);
+  final viewModel = FakeCheckoutViewModel();
 
   // Act
   await tester.pumpWidget(
     MaterialApp(
-      home: ViewModelProvider.withEventListener<CheckoutViewModel, CheckoutEvent>(
-        create: (_) => mockViewModel,
+      home: ViewModelProvider.withEventListener<CheckoutViewModel,
+          CheckoutEvent>(
+        create: (_) => viewModel,
         // Mirror the production onEvent, or reuse a shared function.
         onEvent: (context, viewModel, event) {
           switch (event) {
@@ -841,23 +944,21 @@ testWidgets('shows snackbar on PaymentSuccessEvent', (tester) async {
   );
 
   // Emit event
-  eventController.add(const PaymentSuccessEvent('order123'));
-  await tester.pump();  // Process event
+  viewModel.emit(const PaymentSuccessEvent('order123'));
+  await tester.pump(); // Process event
 
   // Assert
   expect(find.text('Payment successful! Order #order123'), findsOneWidget);
   expect(find.byType(SnackBar), findsOneWidget);
-
-  addTearDown(eventController.close);
 });
 ```
 
-Note that `.withEventListener` owns the VM's lifecycle, so the mock must tolerate `dispose()` being called. When the widget tree separates the provider from the listener, test the listener directly by wrapping it in a plain `Provider<CheckoutViewModel>.value` — `EventListenerMixin` tests don't need the dispose stub. For purely unit-level coverage of event handling logic, extract the `onEvent` callback into a top-level function and test it without any widget tree at all.
+Note that `.withEventListener` owns the VM's lifecycle and disposes it with the widget tree — a real ViewModel subclass handles that without any stubbing (another reason fakes beat mocks here). When the widget tree separates the provider from the listener, test the listener directly by providing the fake through `ViewModelProvider<CheckoutViewModel>.value` — which never disposes, so the test keeps ownership — and pumping the `EventListener` (or the `EventListenerMixin` widget) beneath it. For purely unit-level coverage of event handling logic, extract the `onEvent` callback into a top-level function and test it without any widget tree at all.
 
 For testing business logic independently of the UI, see [Business Logic](02_business_logic.md#testing-strategy).
 
 ## Summary
 
-The ViewModel pattern bridges business logic and UI through state transformation and command dispatch, following the unidirectional data flow illustrated in this guide. Async<T> models the complete lifecycle of asynchronous operations with exhaustive pattern matching, eliminating bugs from unhandled loading or error states. AsyncBuilder renders Async<T> state automatically with anti-flickering support through the `maintainState` parameter. Events handle one-time occurrences separately from persistent state, consumed through `ViewModelProvider.withEventListener`, the `EventListener` widget, or `EventListenerMixin`.
+The ViewModel pattern bridges business logic and UI through state transformation and message dispatch, following the unidirectional data flow illustrated in this guide: synchronous, expression-bodied methods hand `Command`, `ReadQuery`, and `WatchQuery` objects to `run()`, `read()`, and `watch()`, which report each operation's lifecycle as `Async<T>` states — with the error path always covered. Platform asynchrony stays in the widget, which awaits, guards its context, and passes plain data down. Async<T> models the complete lifecycle of asynchronous operations with exhaustive pattern matching; an inline `switch` expression renders it for simple cases, while AsyncBuilder adds anti-flickering through `maintainState`. Events handle one-time occurrences separately from persistent state — carrying error objects, never strings — consumed through `ViewModelProvider.withEventListener`, the `EventListener` widget, or `EventListenerMixin`.
 
 This presentation layer integrates seamlessly with the business logic layer explored in [Business Logic](02_business_logic.md) and the architectural foundations from [Core Architecture](01_core_architecture.md). With these patterns, you can build Flutter applications where UI complexity scales linearly with feature complexity, not exponentially. The framework enforces patterns that prevent common mistakes while remaining flexible enough to handle sophisticated requirements.

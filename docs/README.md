@@ -1,13 +1,9 @@
 # Chassis 🏎️
 
-[![pub package](https://img.shields.io/pub/v/chassis.svg)](https://pub.dev/packages/chassis)
-[![CI](https://github.com/pierremrtn/chassis/actions/workflows/ci.yaml/badge.svg)](https://github.com/pierremrtn/chassis/actions/workflows/ci.yaml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-
 An opinionated architecture framework for Flutter.
 
 <p align="left">
-  <img src="docs/assets/drake.jpg" width="420" alt="Drake meme — rejecting: State Management Package; approving: Architecture Framework">
+  <img src="assets/drake.jpg" width="420" alt="Drake meme — rejecting: State Management Package; approving: Architecture Framework">
 </p>
 
 Chassis provides a rigid structure for your apps so you can stop worrying about architecture and focus on writing code that matters. Because this structure is enforced by the framework rather than by convention, it prevents architectural drift as your codebase grows, without relying on developer discipline.
@@ -22,7 +18,16 @@ Chassis combines MVVM, command-query separation, and the mediator pattern. It co
 * **[chassis_flutter](https://pub.dev/packages/chassis_flutter)** — a powerful ViewModel class and reactive widgets to connect your business logic to the widget tree
 * **[chassis_builder](https://pub.dev/packages/chassis_builder)** — generates the app mediator and verifies at build time that every message has a handler
 
-To learn more, visit the **[documentation](https://pierremrtn.github.io/chassis/)**.
+New here? Start with the **[Quick Start](00_quick_start.md)** — a complete todo app in 15 minutes. Then dive into the guides:
+
+* **[Core Architecture](01_core_architecture.md)** — the layers, command-query separation, and the mediator pattern
+* **[Business Logic](02_business_logic.md)** — messages and handlers: validation, orchestration, and testing in isolation
+* **[Code Generation](03_code_generation.md)** — `@chassisHandler`, `@ChassisApp`, modules, and the generator's build-time guarantees
+* **[UI Integration](04_ui_integration.md)** — ViewModels, dispatching messages, rendering `Async<T>`, and one-time events
+* **[Hard Cases](05_hard_cases.md)** — optimistic UI, deduplicating watch subscriptions, paginated lists, and what `restartable` does not do
+* **[What a Feature Costs](06_feature_costs.md)** — an honest artifact-count comparison with Bloc and Riverpod, and what the ceremony buys
+* **[Error Management](error_management.md)** — the error strategy end-to-end, from infrastructure to the UI
+* **[Coding Rules](coding_rules.md)** — the framework's implementation rules in DO/DON'T form
 
 ## How is this different from Bloc or Riverpod?
 
@@ -39,12 +44,12 @@ Ask any Flutter stack one question: **where does business logic live?**
 <table>
   <tr>
     <td align="center" width="50%">
-      <!-- <img src="docs/assets/pulse.png" width="280" alt="Pulse screenshot"><br> -->
+      <!-- <img src="assets/pulse.png" width="280" alt="Pulse screenshot"><br> -->
       <strong>Pulse</strong> — <em>coming soon</em><br>
       A real-time activity feed demonstrating <code>WatchQuery</code> streams and <code>RunPolicy</code> concurrency.
     </td>
     <td align="center" width="50%">
-      <!-- <img src="docs/assets/ledger.png" width="280" alt="Ledger screenshot"><br> -->
+      <!-- <img src="assets/ledger.png" width="280" alt="Ledger screenshot"><br> -->
       <strong>Ledger</strong> — <em>coming soon</em><br>
       An expense tracker demonstrating <code>@chassisModule</code> and the multi-package split.
     </td>
@@ -58,14 +63,19 @@ Chassis embraces architectural purity. It does require more boilerplate than mos
 Business logic is written as command and query handlers. Commands and queries are pure Dart objects dispatched by the UI: they carry the parameters the handler needs to apply your business logic.
 
 ```dart
-final class CreateUserCommand({
-  required final String name,
-  required final String email,
-}) extends Command<User>;
+final class CreateUserCommand extends Command<User> {
+  CreateUserCommand({required this.name, required this.email});
+
+  final String name;
+  final String email;
+}
 
 @chassisHandler
-class CreateUserHandler(final UserRepository _repository)
-    implements CommandHandler<CreateUserCommand, User> {
+class CreateUserHandler implements CommandHandler<CreateUserCommand, User> {
+  CreateUserHandler(this._repository);
+
+  final UserRepository _repository;
+
   // Trivial here — a real handler might validate input, coordinate
   // several repositories, or enforce business rules.
   @override
@@ -106,7 +116,7 @@ Widget build(BuildContext context) {
 }
 ```
 
-The **[Quick Start](https://pierremrtn.github.io/chassis/00_quick_start/)** walks through the rest: installation, queries, generating the mediator, and reacting to ViewModel events.
+The **[Quick Start](00_quick_start.md)** walks through the rest: installation, queries, generating the mediator, and reacting to ViewModel events.
 
 ## Built for the AI era
 
@@ -148,4 +158,4 @@ Chassis shines where architectural consistency is a primary requirement: large t
 
 ## License
 
-Chassis is released under the MIT License. See [LICENSE](LICENSE) for details.
+Chassis is released under the MIT License. See [LICENSE](https://github.com/pierremrtn/chassis/blob/main/LICENSE) for details.

@@ -6,42 +6,54 @@ This document formalizes the implementation rules embedded in the Chassis framew
 
 ## Architecture & Layering
 
-### DO organize code into three distinct layers: Presentation, Application, and Infrastructure
+### DO organize code into four distinct layers: Presentation, Application, Domain, and Infrastructure
 
-Chassis enforces a layered architecture where each layer has clearly defined responsibilities. The Presentation layer contains widgets and ViewModels. The Application layer houses Commands, Queries, and Handlers. The Infrastructure layer manages repositories and data sources. This separation ensures that changes in one layer do not cascade unpredictably into others.
+Chassis enforces a layered architecture where each layer has clearly defined responsibilities:
+
+- **Presentation** (`presentation/`) — Widgets, ViewModels, State, Events. Depends on message types (application) and chassis_flutter.
+- **Application** (`application/`) — Commands, Queries, Handlers. Depends on repository interfaces from domain.
+- **Domain** (`domain/`) — Entities, value objects, repository interfaces, domain errors. Depends on nothing inside the project.
+- **Infrastructure** (`infrastructure/`) — Repository implementations, third-party adapters. Depends on external SDKs; wired at the composition root.
+
+Prefer a feature-first layout, where each feature owns its four layers; a layer-first layout is acceptable for small apps.
 
 ```
 lib/
-  ├── presentation/        # ViewModels, Widgets
-  ├── application/         # Commands, Queries, Handlers
-  └── infrastructure/      # Repositories, Data Sources
+  ├── mediator.dart            # Composition root: @ChassisApp + handler imports
+  ├── main.dart                # Chassis.initialize(AppMediator(...)) + runApp
+  └── orders/
+      ├── presentation/        # Widgets, ViewModels, State, Events
+      ├── application/         # Commands, Queries, Handlers
+      ├── domain/              # Entities, repository interfaces, domain errors
+      └── infrastructure/      # Repository implementations
 ```
 
 ### DO point source code dependencies inward, toward higher-level policies
 
-The Dependency Rule states that Handlers depend on Repository interfaces (not implementations), ViewModels depend on the Mediator (not Handlers directly), and Widgets depend on ViewModels (not domain logic). This inversion of control enables testing, as you can substitute implementations without modifying consumers.
+The Dependency Rule states that Handlers depend on Repository interfaces (not implementations), ViewModels depend on message types (not Handlers or repositories), and Widgets depend on ViewModels (not domain logic). This inversion of control enables testing, as you can substitute implementations without modifying consumers.
 
 ```dart
 // ✅ Correct: Handler depends on abstraction
-class CreateUserHandler implements CommandHandler<CreateUserCommand, User> {
+class CreateUserCommandHandler
+    implements CommandHandler<CreateUserCommand, User> {
+  CreateUserCommandHandler({required this.repository});
+
   final UserRepository repository; // Interface dependency
-  CreateUserHandler({required this.repository});
 
   @override
-  Future<User> run(CreateUserCommand command) async {
-    return await repository.create(command.name, command.email);
-  }
+  Future<User> run(CreateUserCommand command) =>
+      repository.create(command.name, command.email);
 }
 
 // ❌ Incorrect: Handler depends on concrete implementation
-class CreateUserHandler {
+class CreateUserCommandHandler {
   final FirestoreUserRepository _repository; // Tight coupling
 }
 ```
 
 ### DON'T allow ViewModels to access Repositories directly
 
-The ViewModel is architecturally restricted to being a transformation layer for the UI. It must delegate to a Handler via the Mediator, which creates a natural checkpoint where logic belongs in tested, reusable components. This prevention of logic leaks maintains the integrity of your architecture over time.
+The ViewModel is architecturally restricted to being a transformation layer for the UI. It must delegate to a Handler by dispatching a message, which creates a natural checkpoint where logic belongs in tested, reusable components. This prevention of logic leaks maintains the integrity of your architecture over time.
 
 ### DO follow the unidirectional data flow: UI → ViewModel → Mediator → Handler → Repository
 
@@ -78,16 +90,22 @@ final class WatchUserQuery extends WatchQuery<User> {
 
 ### DO use `ReadQuery` for one-time data fetches and `WatchQuery` for reactive streams
 
-This distinction enables the Mediator to route requests to the appropriate handler type. Attempting to watch a `ReadQuery` results in a compile error, preventing accidental stream subscriptions for one-time operations.
+This distinction routes each message to the appropriate handler type and the appropriate ViewModel method: a `ReadQuery` goes through `read()`, a `WatchQuery` through `watch()`. Passing a `ReadQuery` to `watch()` is a compile error, preventing accidental stream subscriptions for one-time operations.
 
 ```dart
-// One-time fetch
-final user = await mediator.read(GetUserQuery(userId: '123'));
+// One-time fetch (in a ViewModel)
+void loadUser(String userId) => read(
+      GetUserQuery(userId: userId),
+      current: state.user,
+      onState: (user) => setState(state.copyWith(user: user)),
+    );
 
 // Continuous stream
-mediator.watch(WatchUserQuery(userId: '123')).listen((user) {
-  print('User updated: ${user.name}');
-});
+void watchUser(String userId) => watch(
+      WatchUserQuery(userId: userId),
+      current: state.user,
+      onState: (user) => setState(state.copyWith(user: user)),
+    );
 ```
 
 ### PREFER `WatchQuery` streams for most data in reactive Flutter applications
@@ -158,6 +176,8 @@ final class UpdateUserEmailCommand extends Command<void> {
 
 Commands and Queries expose a `Map<String, Object?> get params` getter (empty by default) used by `toString()` and by `LoggingMiddleware`. Overriding it makes a trace read `UpdateUserEmailCommand{userId: u1}` instead of a bare type name, which pays off the first time you debug a production log.
 
+`params` is also the message's *identity*: two messages of the same type with equal `params` are the same operation — the contract that caching or deduplication middlewares (and mock-based tests) rely on. A field that affects the operation but is left out of `params` breaks that contract.
+
 ```dart
 final class UpdateUserEmailCommand extends Command<void> {
   UpdateUserEmailCommand({required this.userId, required this.newEmail});
@@ -172,7 +192,7 @@ final class UpdateUserEmailCommand extends Command<void> {
 
 ### DON'T include secrets in `params`
 
-`params` flows into logs, traces, and any `ChassisLogSink` you plug into `LoggingMiddleware`. Passwords, tokens, and other credentials must never appear there — expose only the fields that are safe to persist in telemetry. Note how the example above deliberately omits `newEmail`-adjacent secrets: a `LoginCommand` would expose its `username` but never its `password`.
+`params` flows into logs, traces, and any `ChassisLogSink` you plug into `LoggingMiddleware`. Passwords, tokens, and other credentials must never appear there — expose only the fields that are safe to persist in telemetry. A `LoginCommand` would expose its `username` but never its `password`.
 
 ---
 
@@ -182,7 +202,7 @@ final class UpdateUserEmailCommand extends Command<void> {
 
 Use an imperative, present-tense verb describing the business operation (e.g., `Create`, `Update`, `Register`, `Assign`, `Delete`), followed by the entity the command acts upon, and always end with `Command`.
 
-```dart
+```text
 // good
 CreateProjectCommand
 UpdateProjectNameCommand
@@ -197,7 +217,7 @@ DoProjectUpdate
 
 Use `Get` as the standard verb, or `Find` if the result might not exist. Append `By[Criteria]` if the resource is queried by a specific parameter.
 
-```dart
+```text
 // good
 GetProjectByIdQuery
 GetAllUsersQuery
@@ -208,29 +228,31 @@ FindCustomerByEmailQuery
 
 Use `Watch` as the standard verb for continuous stream subscriptions. `Observe` is an acceptable alternative.
 
-```dart
+```text
 // good
 WatchProjectByIdQuery
 WatchAllActiveTicketsQuery
 WatchOrderStatusQuery
 ```
 
-### DO name Handlers after their message, minus its `Command`/`Query` suffix, plus `Handler`
+### DO name Handlers after their full message name, plus `Handler`
 
-The Handler's name is the message name with its `Command`/`Query` suffix replaced by `Handler`: `CreateProjectCommand` → `CreateProjectHandler`, `GetProjectByIdQuery` → `GetProjectByIdHandler`. This mechanical naming convention ensures absolute predictability and discoverability. (The handler name is an implementation detail — the generated mediator method is always derived from the message, so this rule exists for humans navigating the codebase, not for the generator.)
+The Handler's name is the message name followed by `Handler`: `CreateProjectCommand` → `CreateProjectCommandHandler`, `GetProjectByIdQuery` → `GetProjectByIdQueryHandler`. This mechanical naming convention ensures absolute predictability and discoverability — and it keeps handler names unambiguous when a Command and a Query share a resource name. Everything the framework derives (registration, build-time checks) keys off the *message*, never the handler, so renaming a handler is a local refactor with zero blast radius.
 
-```dart
+```text
 // good
-CreateProjectHandler
-GetProjectByIdHandler
-WatchOrderStatusHandler
-
-// bad — repeating the Command/Query suffix
 CreateProjectCommandHandler
 GetProjectByIdQueryHandler
+WatchOrderStatusQueryHandler
+
+// bad — dropping the message suffix loses the Command/Query distinction
+CreateProjectHandler
+GetProjectByIdHandler
 ```
 
----
+### DON'T prefix repository interfaces with `I`
+
+Dart convention gives the interface the good name — `OrderRepository`, not `IOrderRepository` — and lets implementations carry the qualifier (`FirestoreOrderRepository`, `InMemoryOrderRepository`). The generated mediator also derives constructor parameter names from dependency type names, so an `I` prefix would leak into every registration site (`iOrderRepository:`).
 
 ### AVOID abbreviations in identifiers
 
@@ -255,14 +277,16 @@ Handlers must use `implements` for their base type (`CommandHandler`, `ReadHandl
 ```dart
 // ✅ Correct: implements
 @chassisHandler
-class CreateOrderHandler implements CommandHandler<CreateOrderCommand, Order> {
+class CreateOrderCommandHandler
+    implements CommandHandler<CreateOrderCommand, Order> {
   @override
   Future<Order> run(CreateOrderCommand command) async { /* ... */ }
 }
 
 // ❌ Incorrect: extends
 @chassisHandler
-class CreateOrderHandler extends CommandHandler<CreateOrderCommand, Order> {
+class CreateOrderCommandHandler
+    extends CommandHandler<CreateOrderCommand, Order> {
   @override
   Future<Order> run(CreateOrderCommand command) async { /* ... */ }
 }
@@ -274,14 +298,15 @@ Handlers receive Repositories and Services via constructor injection, following 
 
 ```dart
 @chassisHandler
-class CreateOrderHandler implements CommandHandler<CreateOrderCommand, Order> {
-  final OrderRepository orderRepository;
-  final PaymentGateway paymentGateway;
-
-  CreateOrderHandler({
+class CreateOrderCommandHandler
+    implements CommandHandler<CreateOrderCommand, Order> {
+  CreateOrderCommandHandler({
     required this.orderRepository,
     required this.paymentGateway,
   });
+
+  final OrderRepository orderRepository;
+  final PaymentGateway paymentGateway;
 
   @override
   Future<Order> run(CreateOrderCommand command) async {
@@ -293,6 +318,85 @@ class CreateOrderHandler implements CommandHandler<CreateOrderCommand, Order> {
 ### DO implement a single responsibility per Handler
 
 Each Handler focuses on a single responsibility: receive a message, execute business logic, call repositories as needed, and return results. Unlike patterns like Bloc that encourage coarse-grained classes handling many events, Chassis enforces one Handler per Command or Query.
+
+### DO model a multi-step flow as a single Command whose Handler composes the repositories involved
+
+A flow like "log in, then load the profile" is one use case, so it is one Command. The Handler is the Application-layer orchestrator: it depends on every port the flow needs and coordinates them. Sequencing several dispatches from a ViewModel — chaining a second `run` inside an `onSuccess` callback — moves application logic into the Presentation layer, exactly the leak the architecture exists to prevent. Single responsibility (see above) is about the *use case*, not about one repository call per handler.
+
+```dart
+// ✅ One use case, one Command — the Handler orchestrates both ports
+@chassisHandler
+class LoginCommandHandler implements CommandHandler<LoginCommand, void> {
+  LoginCommandHandler({
+    required this.authRepository,
+    required this.profileRepository,
+  });
+
+  final AuthRepository authRepository;
+  final ProfileRepository profileRepository;
+
+  @override
+  Future<void> run(LoginCommand command) async {
+    await authRepository.login(command.username, command.password);
+    await profileRepository.refresh();
+  }
+}
+
+// ❌ The flow is sequenced in the ViewModel — application logic in Presentation
+void login(String username, String password) => run(
+      LoginCommand(username: username, password: password),
+      onError: (error, stack) => sendEvent(LoginFailedEvent(error)),
+      onSuccess: (_) => run(
+        RefreshProfileCommand(), // orchestration leaked into a callback chain
+        onState: (profile) => setState(state.copyWith(profile: profile)),
+      ),
+    );
+```
+
+When the second step is a standing *reaction* to state rather than a step of this flow — the profile should reload whenever the authenticated user changes, no matter why it changed — prefer solving it in the Infrastructure layer: let `ProfileRepository` observe the auth state stream, and no layer orchestrates anything.
+
+### DON'T dispatch Commands or Queries from Handlers or Middleware
+
+Handlers and middleware sit *inside* the dispatch pipeline; only the Presentation layer initiates dispatch. Handler-to-handler dispatch dissolves the guarantees the mediator provides: the dependency graph is no longer visible in constructor signatures (and cycles become possible), and every nested dispatch re-enters the middleware chain, so one user gesture shows up as several units of work to logging, transaction, or retry middleware. The generator enforces the handler half of this rule — declaring a `Mediator`-typed (or generated-mediator-typed) constructor dependency fails the build.
+
+Reuse belongs one level down. When two handlers need the same behavior, extract it into a service or repository method and inject it into both — the composition stays visible, testable with plain fakes, and outside the pipeline.
+
+```dart
+// ❌ Handler reaching back into the pipeline — rejected at build time
+@chassisHandler
+class LoginCommandHandler implements CommandHandler<LoginCommand, void> {
+  LoginCommandHandler({required this.authRepository, required this.mediator});
+
+  final AuthRepository authRepository;
+  final Mediator mediator; // build error
+
+  @override
+  Future<void> run(LoginCommand command) async {
+    await authRepository.login(command.username, command.password);
+    await mediator.run(RefreshProfileCommand());
+  }
+}
+
+// ✅ Shared behavior lives in a service injected into both handlers
+@chassisHandler
+class LoginCommandHandler implements CommandHandler<LoginCommand, void> {
+  LoginCommandHandler({
+    required this.authRepository,
+    required this.profileSynchronizer,
+  });
+
+  final AuthRepository authRepository;
+  final ProfileSynchronizer profileSynchronizer;
+
+  @override
+  Future<void> run(LoginCommand command) async {
+    await authRepository.login(command.username, command.password);
+    await profileSynchronizer.refresh();
+  }
+}
+```
+
+For middleware the same boundary holds mechanically: hooks receive `(message, next)` and nothing else. A middleware tempted to trigger business logic — say, dispatching a logout command on authentication failure — is infrastructure logic in disguise: detect the condition at its source (an HTTP interceptor), surface it through a repository's state stream, and let the UI react. See [Core Architecture](01_core_architecture.md#middleware) for the full session-expiry example.
 
 ### DO create business-specific error classes for domain failures
 
@@ -309,7 +413,9 @@ class PaymentDeclinedException implements Exception {
   const PaymentDeclinedException(this.reason);
   final String reason;
 }
+```
 
+```dart
 // ❌ Generic errors obscure intent
 throw Exception('Not enough items'); // What kind of failure? How should the UI react?
 ```
@@ -323,7 +429,8 @@ Every Handler and Repository method that can throw should declare its failure mo
 ///
 /// Throws [InsufficientInventoryException] if any requested item is out of stock.
 /// Throws [PaymentDeclinedException] if the payment gateway rejects the charge.
-class CreateOrderHandler implements CommandHandler<CreateOrderCommand, Order> {
+class CreateOrderCommandHandler
+    implements CommandHandler<CreateOrderCommand, Order> {
   @override
   Future<Order> run(CreateOrderCommand command) async {
     // ...
@@ -337,26 +444,24 @@ class CreateOrderHandler implements CommandHandler<CreateOrderCommand, Order> {
 
 ### DO define each Command or Query alongside its Handler in a dedicated file
 
-Each message-handler pair should live in its own file. Co-locating the message definition with its handler makes it easy to navigate: finding a Command immediately reveals the logic that handles it, and vice versa. This also prevents large files from accumulating unrelated handlers.
+Each message-handler pair should live in its own file. Co-locating the message definition with its handler makes navigation immediate: finding a Command immediately reveals the logic that handles it, and vice versa. This also prevents large files from accumulating unrelated handlers.
 
 ```
 lib/
-  └── application/
-      └── orders/
-          ├── create_order_command.dart       # CreateOrderCommand + CreateOrderHandler
-          ├── get_order_query.dart            # GetOrderQuery + GetOrderHandler
-          └── watch_order_status_query.dart   # WatchOrderStatusQuery + WatchOrderStatusHandler
+  └── orders/
+      └── application/
+          ├── create_order_command.dart       # CreateOrderCommand + CreateOrderCommandHandler
+          ├── get_order_query.dart            # GetOrderQuery + GetOrderQueryHandler
+          └── watch_order_status_query.dart   # WatchOrderStatusQuery + WatchOrderStatusQueryHandler
 ```
 
 ### DO create one file per Command/Query-Handler pair
 
-Splitting each pair into its own file enforces the single-responsibility principle at the file level and makes the project's capabilities scannable from the directory listing alone. When a new developer opens the `application/orders/` folder, they immediately see every operation the order domain supports.
-
----
+Splitting each pair into its own file enforces the single-responsibility principle at the file level and makes the project's capabilities scannable from the directory listing alone. When a new developer opens the `orders/application/` folder, they immediately see every operation the order domain supports.
 
 ### DO use package imports everywhere under `lib/`
 
-Relative imports that climb the tree (`import '../../../../app/composition_root.dart'`)
+Relative imports that climb the tree (`import '../../../../mediator.dart'`)
 hide the dependency direction, break on file moves, and read as noise. Use the
 canonical `package:` form for every import under `lib/`; the standard
 `always_use_package_imports` lint enforces it.
@@ -367,12 +472,13 @@ canonical `package:` form for every import under `lib/`; the standard
 
 ### DO annotate Handlers with `@chassisHandler` to trigger code generation
 
-The `@chassisHandler` annotation marks a handler for automatic registration in the generated mediator. The `chassis_builder` collects annotated handlers reachable from a `@ChassisApp` or `@chassisModule` library and produces the mediator class, handler registrations, and one typed dispatch method per handler. Without this annotation, the generator has no knowledge of the handler and it will not be wired into the dependency graph.
+The `@chassisHandler` annotation marks a handler for automatic registration in the generated mediator. The `chassis_builder` collects annotated handlers reachable from the `@ChassisApp` library's import graph (plus declared `@chassisModule` packages) and produces the mediator class with every handler registered in its constructor. Without this annotation the handler is invisible to the generator — it will not be wired, and its message will fail the build as unhandled (see below).
 
 ```dart
 @chassisHandler
-class CreateOrderHandler implements CommandHandler<CreateOrderCommand, Order> {
-  const CreateOrderHandler({
+class CreateOrderCommandHandler
+    implements CommandHandler<CreateOrderCommand, Order> {
+  const CreateOrderCommandHandler({
     required this.orderRepository,
     required this.paymentGateway,
   });
@@ -394,8 +500,9 @@ An annotated handler needs an unnamed generative constructor; its parameters —
 ```dart
 // ✅ Preferred: named dependencies — unambiguous at every call site
 @chassisHandler
-class CreateOrderHandler implements CommandHandler<CreateOrderCommand, Order> {
-  const CreateOrderHandler({
+class CreateOrderCommandHandler
+    implements CommandHandler<CreateOrderCommand, Order> {
+  const CreateOrderCommandHandler({
     required this.orderRepository,
     required this.inventoryService,
   });
@@ -406,42 +513,61 @@ class CreateOrderHandler implements CommandHandler<CreateOrderCommand, Order> {
 
 // Acceptable for a single dependency: positional
 @chassisHandler
-class DeleteOrderHandler implements CommandHandler<DeleteOrderCommand, void> {
-  const DeleteOrderHandler(this._orderRepository);
+class DeleteOrderCommandHandler
+    implements CommandHandler<DeleteOrderCommand, void> {
+  const DeleteOrderCommandHandler(this._orderRepository);
 
   final OrderRepository _orderRepository;
 }
 ```
 
-### DO declare the composition root with `@ChassisApp`
+### DO declare the composition root in a dedicated `lib/mediator.dart`
 
-Place `@ChassisApp` on the library directive of a library that imports your handlers (directly or via a barrel), listing any modules the app composes. The generator emits the concrete mediator in the adjacent `<file>.chassis.dart`: its constructor takes every deduplicated handler dependency as a required named parameter, registers all handlers, and implements each module's generated interface — so a missing handler is a compile error.
+Place `@ChassisApp` on the library directive of `lib/mediator.dart`. This file has exactly two jobs: carry the annotation, and hold the imports that make every handler reachable from the generator's import-graph walk (directly or through feature barrels). The generator emits the mediator in the adjacent `mediator.chassis.dart`: a `class AppMediator extends Mediator` whose *only* member is a constructor taking every deduplicated handler dependency as a required named parameter and registering all handlers. There are no per-message methods and nothing else to generate — the mediator's public API is the `run`/`read`/`watch` it inherits.
+
+The import-graph walk never crosses package boundaries: handlers living in another package are contributed by declaring that package's `@chassisModule` class in `@ChassisApp(modules: [...])`.
 
 ```dart
-@ChassisApp(modules: [AuthModule], mediatorName: 'AppMediator')
+// lib/mediator.dart — the composition root
+@ChassisApp(mediatorName: 'AppMediator')
 library;
 
-import 'main.chassis.dart';
+import 'package:chassis/chassis.dart';
 
-// Generated in main.chassis.dart:
-// class AppMediator extends Mediator implements AuthMediator { ... }
+// These imports make the handlers reachable from the generator's walk.
+import 'package:app/orders/application/application.dart';
+import 'package:app/users/application/application.dart';
+
+export 'mediator.chassis.dart';
+
+// Generated in mediator.chassis.dart:
+// class AppMediator extends Mediator {
+//   AppMediator({
+//     required OrderRepository orderRepository,
+//     required PaymentGateway paymentGateway,
+//     required UserRepository userRepository,
+//   }) {
+//     registerCommandHandler(CreateOrderCommandHandler(
+//       orderRepository: orderRepository,
+//       paymentGateway: paymentGateway,
+//     ));
+//     // ... every reachable handler
+//   }
+// }
 ```
 
-### DO use the generated mediator's typed methods
+### DO give every reachable Command and Query a handler
 
-The generated mediator exposes one typed instance method per handler — named after the *message* class, minus its `Query`/`Command` suffix (`GetProfileQuery` → `getProfile`), never after the handler: the message is the public concept, so renaming a handler (an implementation detail) does not change the generated API. Always use these methods rather than wiring handlers manually or dispatching raw message types: they are the primary discoverability mechanism for your application's capabilities, and every one of them dispatches through `run`/`read`/`watch`, so middleware always applies.
+A concrete Command or Query reachable from the `@ChassisApp` import graph with no `@chassisHandler` handler is a **build error** — chassis fails the build instead of letting the dispatch throw `HandlerNotRegisteredError` at runtime. This is the framework's flagship guarantee, enforced at the declaration site: since ViewModels dispatch message objects directly, the "does a handler exist?" proof cannot live at the call site, so the builder proves it once for the whole graph.
+
+For a message whose handler is not written yet, opt out explicitly with `@unhandledMessage` — the annotation is a visible, greppable TODO rather than a silent gap.
 
 ```dart
-// Generated by chassis_builder — use this directly
-final mediator = AppMediator(
-  orderRepository: orderRepository,
-  paymentGateway: paymentGateway,
-);
-
-// Type-safe access via the generated methods
-await mediator.createOrder(userId: userId, items: items);
-final order = await mediator.getOrder(orderId: orderId);
-mediator.watchOrderStatus(orderId: orderId).listen((status) { /* ... */ });
+@unhandledMessage // handler lands in the next commit
+final class ExportReportCommand extends Command<void> {
+  ExportReportCommand({required this.reportId});
+  final String reportId;
+}
 ```
 
 ### DO run `dart run build_runner build` after adding or changing a handler
@@ -458,14 +584,28 @@ Generated files are overwritten on every build. If the generated output looks wr
 
 ### DO use the `ViewModel<State, Event>` base class for all ViewModels
 
-ViewModels serve as the bridge between business logic and the widget tree. They hold current UI state, translate user actions into Commands or Queries dispatched through the Mediator, and emit events for one-time occurrences.
+ViewModels serve as the bridge between business logic and the widget tree. They hold current UI state, translate user actions into message objects dispatched through `run`/`read`/`watch`, and emit events for one-time occurrences. A ViewModel never references the generated mediator class — it depends only on message types, and dispatch is routed through the mediator installed by `Chassis.initialize` (see [Dependency Wiring](#dependency-wiring)).
 
 ```dart
 class UserProfileViewModel extends ViewModel<UserProfileState, UserProfileEvent> {
-  UserProfileViewModel(this._mediator) : super(UserProfileState.initial());
+  UserProfileViewModel({super.mediator}) : super(UserProfileState.initial());
+}
+```
 
-  // Typed as the generated mediator to access its typed dispatch methods.
-  final AppMediator _mediator;
+### DO forward the `{super.mediator}` constructor parameter as the testing seam
+
+`ViewModel(T initial, {Mediator? mediator})` — the optional `mediator` overrides the application mediator installed by `Chassis.initialize` and is resolved lazily at the first dispatch. Production code never passes it (`UserProfileViewModel()`); tests pass a fake (`UserProfileViewModel(mediator: fakeMediator)`), which always wins over the global. Forwarding it with `{super.mediator}` costs one parameter and keeps every ViewModel testable without touching global state.
+
+```dart
+// ✅ The seam is there when the test needs it
+class UserProfileViewModel extends ViewModel<UserProfileState, UserProfileEvent> {
+  UserProfileViewModel({super.mediator}) : super(UserProfileState.initial());
+}
+
+// ❌ No seam: this ViewModel can only be tested through Chassis.initialize —
+// global state shared across the whole test suite
+class UserProfileViewModel extends ViewModel<UserProfileState, UserProfileEvent> {
+  UserProfileViewModel() : super(UserProfileState.initial());
 }
 ```
 
@@ -497,32 +637,109 @@ class UserProfileState {
 
 The `Async<T>` sealed union models the complete lifecycle of asynchronous operations — `Loading`, `Data`, and `Error` — preventing common UI bugs where loading states are not handled.
 
-### DO use `watch()` for reactive stream subscriptions and `run()` for one-time futures
+### DO dispatch message objects through `run()`, `read()`, and `watch()`
 
-The `watch()` method subscribes to streams with automatic disposal. The `run()` method handles futures. Both share the same callback contract: `onState` (if provided) fires for every transition, and `onSuccess` (`run`) / `onData` (`watch`) and `onError` are additive conveniences fired after it — at least one callback is required. Pass `current:` so loading and error emissions carry the existing data, and use `key:` on `watch()` when a re-watch must replace the previous subscription.
+Each method takes the message itself — a `Command` for `run()`, a `ReadQuery` for `read()`, a `WatchQuery` for `watch()` — dispatches it through the installed mediator, and reports the lifecycle as `Async<T>` states. Operations are keyed by the message's runtime type by default: dispatches of the same command class share their `RunPolicy`, and a re-`watch` of the same query class *replaces* the previous subscription (pass distinct explicit `key`s to watch several instances of one query class concurrently). Pass `current:` so loading and error emissions carry the existing data instead of blanking the UI.
 
 ```dart
-void loadUser(String userId) {
-  watch(
-    _mediator.watchUser(userId: userId),
-    key: #user,             // Re-watching with a new id replaces the subscription
-    current: state.user,    // Loading/error emissions keep the current data
-    onState: (asyncUser) => setState(state.copyWith(user: asyncUser)),
-  );
-}
+void watchUser(String userId) => watch(
+      // Re-calling with a new id replaces the previous subscription:
+      // watches are keyed by query type by default.
+      WatchUserQuery(userId: userId),
+      current: state.user,
+      onState: (user) => setState(state.copyWith(user: user)),
+    );
 
-void deleteUser(String userId) {
-  run(
-    () => _mediator.deleteUser(userId: userId),
-    onSuccess: (_) => sendEvent(UserDeletedEvent()),
-    onError: (error) => sendEvent(DeleteFailedEvent(error.toString())),
+void deleteUser(String userId) => run(
+      DeleteUserCommand(userId: userId),
+      onSuccess: (_) => sendEvent(UserDeletedEvent()),
+      onError: (error, stack) => sendEvent(DeleteUserFailedEvent(error)),
+    );
+```
+
+Dispatch failures never crash the call site: a throwing handler — even one that throws synchronously — surfaces as an `AsyncError` through the callbacks.
+
+### DO cover the error path of every dispatch with `onState` or `onError`
+
+The callback contract is additive: `onState` (if provided) fires for **every** transition — loading, data, error — and `onSuccess` (`run`/`read`) / `onData` (`watch`) / `onError` are conveniences fired *after* it for their respective transition. `onError` receives `(Object error, StackTrace stack)`. Providing only `onSuccess` is the "invisible failure" anti-pattern: on failure nothing updates, nothing is emitted, and the user stares at a stale screen while the error vanishes. Every `run`, `read`, and `watch` must include `onState` or `onError`.
+
+bad
+```dart
+void submit() => run(
+      SubmitOrderCommand(items: state.items),
+      // A failure is invisible: no state transition, no event, no message.
+      onSuccess: (order) => sendEvent(OrderConfirmedEvent(order.id)),
+    );
+```
+
+good
+```dart
+void submit() => run(
+      SubmitOrderCommand(items: state.items),
+      current: state.order,
+      onState: (order) => setState(state.copyWith(order: order)),
+      onSuccess: (order) => sendEvent(OrderConfirmedEvent(order.id)),
+    );
+```
+
+### DON'T await inside a ViewModel
+
+A ViewModel method is synchronous and expression-bodied: it builds a message, hands it to `run`/`read`/`watch`, and returns — all asynchrony lives in the dispatch machinery and the handler. An `await` in a ViewModel is always one of two leaks. Multi-step business logic (`await login; await refresh`) belongs in a single handler (see [Handlers](#handlers)). Platform and UI async — image picker, permission prompts, biometrics, share sheet — belongs in the *widget*: the widget awaits it, guards `context.mounted` (the `use_build_context_synchronously` lint enforces this) and disables the button while awaiting (two concurrent `pickImage` calls throw `PlatformException(already_active)`), then passes plain data to a synchronous ViewModel method.
+
+bad
+```dart
+// ❌ Platform async and awaited dispatch inside the ViewModel
+Future<void> changeAvatar() async {
+  final file = await ImagePicker().pickImage(source: ImageSource.gallery);
+  if (file == null) return;
+  await run(
+    UpdateAvatarCommand(file.path),
+    onState: (avatar) => setState(state.copyWith(avatar: avatar)),
   );
 }
 ```
 
+good
+```dart
+// ✅ ViewModel: synchronous and expression-bodied
+void changeAvatar(XFile file) => run(
+      UpdateAvatarCommand(file.path),
+      current: state.avatar,
+      onState: (avatar) => setState(state.copyWith(avatar: avatar)),
+    );
+
+// ✅ Widget: owns the platform interaction (button disabled while awaiting)
+final pickButton = ElevatedButton(
+  onPressed: () async {
+    final file = await ImagePicker().pickImage(source: ImageSource.gallery);
+    if (!context.mounted || file == null) return;
+    context.read<ProfileViewModel>().changeAvatar(file);
+  },
+);
+```
+
+### CONSIDER setting a `RunPolicy` when concurrent dispatches of the same message collide
+
+Runs sharing a key (by default, the message class) are arbitrated by their `RunPolicy`: `concurrent` (default — everyone runs), `restartable({debounce})` (latest wins — for search-as-you-type and refetches), `droppable` (first wins — for double-submit protection), `sequential` (queued in order). Note that `restartable` does **not** cancel the underlying execution — only the superseded run's callbacks are cut; the network call completes and its side effects land.
+
+```dart
+void search(String term) => read(
+      SearchUsersQuery(term: term),
+      policy: const RunPolicy.restartable(debounce: Duration(milliseconds: 300)),
+      current: state.results,
+      onState: (results) => setState(state.copyWith(results: results)),
+    );
+
+void submitPayment() => run(
+      SubmitPaymentCommand(cartId: state.cartId),
+      policy: const RunPolicy.droppable(), // a second tap resolves with the in-flight result
+      onState: (receipt) => setState(state.copyWith(receipt: receipt)),
+    );
+```
+
 ### DON'T implement business logic directly inside ViewModels
 
-ViewModels cannot accidentally implement business logic because they lack direct access to repositories. They must delegate to a Handler via the Mediator. This prevents logic leaks and ensures that business rules live in tested, reusable Handlers.
+ViewModels cannot accidentally implement business logic because they lack direct access to repositories. They must delegate to a Handler by dispatching a message. This prevents logic leaks and ensures that business rules live in tested, reusable Handlers.
 
 ---
 
@@ -548,6 +765,36 @@ class NavigateToOrderConfirmationEvent implements CheckoutEvent {
 }
 ```
 
+### DO carry the error object in failure events
+
+A failure event that stores `error.toString()` destroys pattern matching: the listener can no longer switch on the domain error type to choose between retry, message, or navigation — it holds an opaque string. Carry the error *object* (the domain error, or a dedicated type) and translate it to user-facing text at the edge, in the widget that consumes the event.
+
+bad
+```dart
+class DeleteUserFailedEvent implements UserEvent {
+  const DeleteUserFailedEvent(this.message);
+  final String message; // the type is gone — nothing to match on
+}
+
+void deleteUser() => run(
+      DeleteUserCommand(userId),
+      onError: (error, stack) => sendEvent(DeleteUserFailedEvent(error.toString())),
+    );
+```
+
+good
+```dart
+class DeleteUserFailedEvent implements UserEvent {
+  const DeleteUserFailedEvent(this.error);
+  final Object error;
+}
+
+void deleteUser() => run(
+      DeleteUserCommand(userId),
+      onError: (error, stack) => sendEvent(DeleteUserFailedEvent(error)),
+    );
+```
+
 ### DON'T model one-time occurrences as nullable state properties
 
 Modeling events as nullable state properties (e.g., `String? snackbarMessage`) causes rebuilds to replay events, requires manual cleanup by nulling out properties after consumption, and pollutes the state object with ephemeral data.
@@ -570,19 +817,106 @@ class ShowSnackbarEvent implements GoodEvent {
 
 ---
 
-## UI Integration
+## Using freezed
 
-### DO use `AsyncBuilder` to render `Async<T>` states in the widget tree
+[freezed](https://pub.dev/packages/freezed) pairs naturally with chassis on the presentation and domain side — it generates the `copyWith`/`==`/`toString` that immutable state classes and entities need, and a chassis app already runs `build_runner`, so the marginal cost of one more generator is small. It does *not* pair with messages, which come with their own identity contract.
 
-`AsyncBuilder` automatically renders the appropriate UI based on whether data is loading, available, or errored. This eliminates manual state checking in build methods.
+### CONSIDER generating state classes and entities with freezed
+
+Hand-written `copyWith` is mechanical and drifts silently: add a field, forget its `copyWith` parameter, and the compiler says nothing while state updates quietly drop the field. freezed derives `copyWith`, `==`, and `toString` from a single declaration, and `Async<T>` fields compose like any other value. The hand-written form (see [ViewModel](#viewmodel)) remains perfectly acceptable — the rule there only requires immutability and `copyWith`, not a specific tool.
 
 ```dart
-AsyncBuilder<User>(
-  state: context.select((UserViewModel vm) => vm.state.user),
-  builder: (context, user) => Text(user.name),
-  loadingBuilder: (context) => CircularProgressIndicator(),
-  errorBuilder: (context, error) => Text('Error: $error'),
-)
+@freezed
+abstract class FavoritesState with _$FavoritesState {
+  const factory FavoritesState({
+    @Default(Async<List<Favorite>>.loading()) Async<List<Favorite>> favorites,
+    @Default(false) bool isEditing,
+  }) = _FavoritesState;
+}
+```
+
+### CONSIDER modeling event families as freezed sealed unions
+
+An event family is a sealed hierarchy (see [State vs Events](#state-vs-events)), and freezed's union syntax declares one in fewer lines while giving every case `==` and `toString`. The generated case classes are public, so event listeners pattern-match on them exactly as they would on hand-written ones — and a failure case still carries the error *object*, never a string.
+
+```dart
+@freezed
+sealed class FavoritesEvent with _$FavoritesEvent {
+  const factory FavoritesEvent.toggleFailed(Object error) = ToggleFailed;
+  const factory FavoritesEvent.allCleared() = AllCleared;
+}
+
+// In the event listener — same pattern matching as a hand-written family:
+void onEvent(FavoritesEvent event) {
+  switch (event) {
+    case ToggleFailed(:final error): /* ... */
+    case AllCleared(): /* ... */
+  }
+}
+```
+
+### DON'T declare Commands or Queries as freezed classes
+
+A message is not missing anything freezed provides. `Command`, `ReadQuery`, and `WatchQuery` already define structural equality and logging-safe `toString` in terms of `params` (see [Messages](#messages-commands-queries)), and `copyWith` is dead weight on an object constructed at the dispatch site and consumed by one handler.
+
+Annotating a message buys nothing and breaks things in the current freezed major (3.x). The factory-constructor form is shape-incompatible outright: freezed 3 requires those classes to be `abstract` or `sealed`, while messages are concrete `final class`es. The generative-constructor form ("simple" classes, supported since freezed 3) is the closest fit, since a plain generative constructor can keep the mandatory `extends Command<R>` clause — but the `_$X` mixin it requires brings its own `==`, `hashCode`, and `toString` computed over *all* fields, and in Dart, mixin members override the ones inherited from the superclass. That silently replaces the params-based identity that caching and deduplication middlewares and mock-based ViewModel tests rely on, and `toString` stops being secret-safe: `Command.toString` prints only `params`, where a field like a password is deliberately omitted; freezed prints every field. You still write `params` by hand either way — freezed knows nothing about it.
+
+bad
+```dart
+@freezed
+final class LoginCommand extends Command<void> with _$LoginCommand {
+  LoginCommand({required this.username, required this.password});
+
+  @override
+  final String username;
+  @override
+  final String password;
+
+  // _$LoginCommand overrides ==/hashCode/toString from Command:
+  // identity is no longer params-based, and toString prints the password.
+  @override
+  Map<String, Object?> get params => {'username': username};
+}
+```
+
+good
+```dart
+final class LoginCommand extends Command<void> {
+  LoginCommand({required this.username, required this.password});
+
+  final String username;
+  final String password;
+
+  @override
+  Map<String, Object?> get params => {'username': username}; // never the password
+}
+```
+
+Reserve freezed for state, entities, and events; keep messages as plain classes.
+
+---
+
+## UI Integration
+
+### PREFER rendering `Async<T>` with an inline `switch` expression
+
+`Async<T>` is sealed, so a `switch` expression is exhaustive: the compiler forces every case — data, loading, error — to produce a widget, which is the whole point of the type. Reserve `AsyncBuilder` for when you need its `maintainState` behavior — keeping the previous data on screen through a refetch instead of flashing a spinner.
+
+```dart
+// Simple rendering: the compiler proves all three cases are handled.
+final header = switch (context.select((UserViewModel vm) => vm.state.user)) {
+  AsyncData(:final value) => UserHeader(user: value),
+  AsyncLoading() => const UserHeaderSkeleton(),
+  AsyncError(:final error) => UserHeaderError(error: error),
+};
+
+// Anti-flicker refetch: AsyncBuilder keeps the previous list visible
+// while a new page loads (maintainState defaults to true).
+final todoList = AsyncBuilder<List<Todo>>(
+  state: context.select((TodoViewModel vm) => vm.state.todos),
+  builder: (context, todos) => TodoList(todos: todos),
+  errorBuilder: (context, error) => TodoListError(error: error),
+);
 ```
 
 ### DON'T collapse an `Async<T>` error into a default with `valueOrNull ?? fallback`
@@ -600,9 +934,10 @@ keeping the previous data through a transient refetch error. The problem with
 `??` is that it cannot express that this was a decision — the same characters
 also spell "I forgot the error case".
 
-So route every collapse through the explicit channel: an `errorBuilder` (even
-one that returns the default or `SizedBox.shrink()`) states the degradation
-in code, is reviewable, and is greppable. A data-shaped fallback that encodes
+So route every collapse through an explicit channel: a dedicated `AsyncError`
+branch in the `switch` — or an `errorBuilder` on `AsyncBuilder` — even one
+that returns the default or `SizedBox.shrink()`, states the degradation in
+code, is reviewable, and is greppable. A data-shaped fallback that encodes
 a business case ("document absent → empty day") belongs at the data layer,
 decided once in the repository — by the time a value is an `AsyncError`, it
 is not data anymore.
@@ -619,18 +954,32 @@ JournalSections(
 good
 ```dart
 // Primary content: the error reaches a visible branch.
-AsyncBuilder<JournalDay>(
-  state: state.day,
-  builder: (context, day) => JournalSections(day: day),
-  errorBuilder: (context, error) => JournalUnavailableBanner(error: error),
-)
+final daySection = switch (state.day) {
+  AsyncData(:final value) => JournalSections(day: value),
+  AsyncLoading() => const JournalSkeleton(),
+  AsyncError(:final error) => JournalUnavailableBanner(error: error),
+};
 
 // Optional content: degradation is the design — stated explicitly.
-AsyncBuilder<CoachQuote>(
-  state: state.quote,
-  builder: (context, quote) => CoachQuoteCard(quote: quote),
-  errorBuilder: (context, _) => const SizedBox.shrink(), // deliberate
-)
+final quoteSection = switch (state.quote) {
+  AsyncData(:final value) => CoachQuoteCard(quote: value),
+  AsyncLoading() || AsyncError() => const SizedBox.shrink(), // deliberate
+};
+```
+
+### DO read state with `context.select` and dispatch actions with `context.read`
+
+`context.select` scopes the rebuild to the selected slice — the widget rebuilds only when that value changes, not on every `notifyListeners`. Use the inferred-parameter form (`(TodoViewModel vm) => ...`), never explicit type arguments. In callbacks, use `context.read` — a callback needs the ViewModel once and must not subscribe. Reserve `context.watch` for a widget that genuinely consumes the whole state.
+
+```dart
+// Build: rebuilds only when the todo list changes.
+final todos = context.select((TodoViewModel vm) => vm.state.todos);
+
+// Callback: dispatch without subscribing.
+final addButton = ElevatedButton(
+  onPressed: () => context.read<TodoViewModel>().addTodo(title),
+  child: const Text('Add'),
+);
 ```
 
 ### DO use `ViewModelProvider.withEventListener` to listen to events from a ViewModel you provide
@@ -639,7 +988,7 @@ AsyncBuilder<CoachQuote>(
 
 ```dart
 ViewModelProvider.withEventListener<CheckoutViewModel, CheckoutEvent>(
-  create: (_) => CheckoutViewModel(mediator),
+  create: (_) => CheckoutViewModel(),
   onEvent: (context, viewModel, event) {
     switch (event) {
       case PaymentSuccessEvent(:final orderId):
@@ -655,11 +1004,11 @@ ViewModelProvider.withEventListener<CheckoutViewModel, CheckoutEvent>(
 
 ### DO use `ViewModelProvider` for ViewModel dependency injection
 
-`ViewModelProvider` integrates with the `provider` package and manages the ViewModel lifecycle automatically, ensuring proper creation and disposal.
+`ViewModelProvider` integrates with the `provider` package and manages the ViewModel lifecycle automatically, ensuring proper creation and disposal. Since ViewModels resolve the mediator themselves, `create` takes no wiring — there is nothing to thread through the widget tree.
 
 ```dart
 ViewModelProvider<TodoViewModel>(
-  create: (_) => TodoViewModel(mediator),
+  create: (_) => TodoViewModel(),
   child: const TodoScreen(),
 )
 ```
@@ -670,11 +1019,7 @@ ViewModelProvider<TodoViewModel>(
 
 ### DO dispatch all operations through the Mediator
 
-ViewModels depend only on the Mediator, simplifying their constructor signatures. The Mediator wires handlers to their dependencies at startup and provides a single entry point for all business logic.
-
-### DO use the mediator's generated typed methods
-
-Typed methods transform generic message dispatching into a clean, type-safe API where your IDE autocompletes every available operation. They are instance methods of the mediator class generated by `chassis_builder` — see [Code Generation](#code-generation) for details.
+The Mediator is the single entry point for business logic: every dispatch traverses the middleware chain, and handler wiring is proven at build time. ViewModels participate implicitly — their `run`/`read`/`watch` dispatch through the mediator installed by `Chassis.initialize` — and never hold a mediator reference of their own. The generated `AppMediator` adds no API on top of the base class: it is a registration constructor, and dispatch always goes through the inherited `run`/`read`/`watch`.
 
 ### CONSIDER using Middleware for cross-cutting concerns
 
@@ -683,7 +1028,9 @@ Middleware intercepts messages before they reach handlers, enabling logging, per
 ```dart
 // Built-in tracing: dispatch, outcome, duration, errors with stack traces
 mediator.addMiddleware(LoggingMiddleware());
+```
 
+```dart
 // Custom middleware
 class AuditMiddleware extends MediatorMiddleware {
   AuditMiddleware(this._audit);
@@ -691,12 +1038,29 @@ class AuditMiddleware extends MediatorMiddleware {
   final AuditService _audit;
 
   @override
-  Future<R> onRun<C extends Command<R>, R>(C command, NextRun<C, R> next) async {
+  Future<R> onRun<R>(Command<R> command, NextRun<R> next) async {
     await _audit.record(command);
     return next(command);
   }
 }
 ```
+
+### DO report failures through `CrashReportingMiddleware`
+
+The middleware chain is chassis's observability channel — there is deliberately no `BlocObserver`/`ProviderObserver` equivalent. `CrashReportingMiddleware` reports every failure crossing the mediator (including errors flowing through watch streams) and then rethrows — reporting never swallows a failure. Classification uses Dart's own distinction: an `Error` is a programming bug and reports as `fatal: true`; anything else is an expected domain failure and reports as non-fatal.
+
+```dart
+final mediator = AppMediator(/* dependencies */)
+  ..addMiddleware(LoggingMiddleware())
+  ..addMiddleware(CrashReportingMiddleware(
+    (error, stack, {required fatal}) => FirebaseCrashlytics.instance
+        .recordError(error, stack, fatal: fatal),
+  ));
+```
+
+### DON'T catch `ChassisError`
+
+`HandlerNotRegisteredError` and `DuplicateHandlerError` extend `Error` under the sealed `ChassisError`: they signal wiring bugs — a missing `@chassisHandler`, a stale build, a duplicate manual registration — never runtime conditions to recover from. Fix the registration and rebuild; a `catch` that swallows them turns a build-time-preventable bug into silent misbehavior. (This is also why they are `Error`s, not `Exception`s: an `on Exception` clause written for domain failures cannot accidentally absorb them, and `CrashReportingMiddleware` classifies them as fatal.)
 
 ---
 
@@ -715,9 +1079,9 @@ A Repository interface defines what data operations are possible without specify
 Handlers are pure Dart classes testable without the Flutter framework. Inject mock repositories via the constructor and verify business logic without UI or database dependencies.
 
 ```dart
-test('CreateUserHandler validates email', () async {
+test('CreateUserCommandHandler validates email', () async {
   final mockRepository = MockUserRepository();
-  final handler = CreateUserHandler(mockRepository);
+  final handler = CreateUserCommandHandler(repository: mockRepository);
 
   final command = CreateUserCommand(name: 'John', email: '');
 
@@ -730,29 +1094,60 @@ test('CreateUserHandler validates email', () async {
 });
 ```
 
-### DO test ViewModels by mocking the Mediator
+### DO test ViewModels by passing a fake mediator to the constructor
 
-ViewModels depend only on the mediator, enabling tests with a mocked mediator instead of full dependency trees. Mock the generated mediator class and stub its typed methods directly — this isolates the ViewModel from all downstream dependencies.
+The `{super.mediator}` parameter is the seam: pass a mock of the base `Mediator` and stub `run`/`read`/`watch` with the expected message. Messages have structural equality — same type, equal `params` — so a stub set up with an equal message instance matches the one the ViewModel dispatches, with no argument matchers (another reason to override `params`: a field left out of it is invisible to equality). This isolates the ViewModel from every downstream dependency, including the generated mediator.
 
 ```dart
-class MockAppMediator extends Mock implements AppMediator {}
+class MockMediator extends Mock implements Mediator {}
+```
 
+```dart
 test('loadUser watches the user', () {
-  final mockMediator = MockAppMediator();
-
-  when(() => mockMediator.watchUser(userId: '1'))
+  final mediator = MockMediator();
+  when(() => mediator.watch(WatchUserQuery(userId: '1')))
       .thenAnswer((_) => Stream.value(User(id: '1', name: 'John')));
 
-  final viewModel = UserViewModel(mockMediator);
+  final viewModel = UserViewModel(mediator: mediator);
   viewModel.loadUser('1');
 
-  verify(() => mockMediator.watchUser(userId: '1')).called(1);
+  verify(() => mediator.watch(WatchUserQuery(userId: '1'))).called(1);
 });
 ```
+
+### DON'T call `Chassis.initialize` in tests
+
+The global mediator is process-wide state: initializing it in one test leaks into every test that runs after, and parallel suites step on each other. The constructor override always wins over the global, so `MyViewModel(initialState, mediator: fakeMediator)` needs no global setup and no teardown. (`Chassis.reset` exists for restoring a clean state, but a suite that needs it is usually a suite that should have used the constructor seam.)
 
 ### DO test widgets by mocking the ViewModel
 
 Widget tests verify UI rendering and user interaction handling without executing business logic. Mock the ViewModel to control state and verify method calls.
+
+### DO provide mocked ViewModels with `ViewModelProvider<T>.value` in widget tests
+
+A ViewModel IS a `Listenable`, and the `provider` package's `debugCheckInvalidValueType` rejects raw `Provider<T>.value` for listenable values — the test throws at `pumpWidget`. `ViewModelProvider<T>.value` provides an existing instance without taking ownership of its lifecycle, which is exactly what a test that constructed the mock itself needs.
+
+bad
+```dart
+await tester.pumpWidget(
+  Provider<TodoViewModel>.value( // throws at pumpWidget: value is a Listenable
+    value: mockViewModel,
+    child: const TodoScreen(),
+  ),
+);
+```
+
+good
+```dart
+await tester.pumpWidget(
+  MaterialApp(
+    home: ViewModelProvider<TodoViewModel>.value(
+      value: mockViewModel,
+      child: const TodoScreen(),
+    ),
+  ),
+);
+```
 
 ### PREFER testing events through StreamControllers in widget tests
 
@@ -762,9 +1157,9 @@ Simulating events through a `StreamController` allows testing UI reactions to Vi
 
 ## Resource Management
 
-### DO rely on `autoDisposeStreamSubscription` for automatic stream cleanup
+### DO rely on `watch()` for subscription lifecycle management
 
-The ViewModel's `watch()` and `run()` methods automatically register cleanup callbacks. All subscriptions are cancelled when the ViewModel is disposed, preventing memory leaks.
+Every subscription started with `watch()` is tracked by the framework: it is cancelled when the ViewModel is disposed, replaced when a new `watch` reuses its key, and cancellable early through the returned `WatchHandle`. For the rare stream subscribed outside `watch()`, register it with `autoDisposeStreamSubscription` so disposal cancels it.
 
 ### DO use `autoDispose` for any `Disposable` resource the ViewModel owns
 
@@ -778,29 +1173,61 @@ The framework handles subscription lifecycle through `watch()` and `autoDisposeS
 
 ## Dependency Wiring
 
-### DO compose the dependency tree from the bottom up at application startup
+### DO install the mediator with `Chassis.initialize` before `runApp`
 
-The dependency tree flows naturally: repositories have no dependencies, the Mediator depends on repositories, ViewModels depend on the Mediator, and widgets depend on ViewModels. This unidirectional dependency graph makes the application easy to reason about. Declare the Mediator as a global variable so it can be accessed from anywhere in the route declarations without threading it through constructor parameters.
+`main()` is the only place that sees infrastructure: it constructs the repository implementations, passes them to the generated `AppMediator` constructor — the application's dependency manifest, where a missing dependency is a compile error — and installs the result with `Chassis.initialize`. Every ViewModel resolves that mediator lazily at its first dispatch; if initialization was forgotten, the first dispatch throws an actionable `StateError` naming the fix.
 
 ```dart
-late final AppMediator mediator;
+// lib/main.dart
+import 'package:app/mediator.dart';
+import 'package:chassis_flutter/chassis_flutter.dart';
+import 'package:flutter/material.dart';
+
+void main() {
+  Chassis.initialize(
+    AppMediator(
+      orderRepository: FirestoreOrderRepository(),
+      paymentGateway: StripePaymentGateway(),
+      userRepository: FirestoreUserRepository(),
+    )
+      ..addMiddleware(LoggingMiddleware())
+      ..addMiddleware(CrashReportingMiddleware(
+        (error, stack, {required fatal}) => FirebaseCrashlytics.instance
+            .recordError(error, stack, fatal: fatal),
+      )),
+  );
+
+  runApp(const MyApp());
+}
+```
+
+The composition root itself — the `@ChassisApp` annotation and the imports that make handlers reachable — lives in `lib/mediator.dart` (see [Code Generation](#code-generation)); `main.dart` only constructs and installs.
+
+### DON'T store the mediator in a global variable
+
+The old pattern — `late final AppMediator mediator;` initialized at startup and referenced from ViewModels and route builders — is dead. `Chassis.initialize` already provides the single installation point, and ViewModels resolve it themselves, so the global's only remaining effect is to invite bypasses: presentation code importing `main.dart` (a backward import — presentation must never depend on the composition root) and raw `await mediator.run(...)` calls that skip the ViewModel pipeline (`RunPolicy`, `Async` lifecycle, error reporting). The only other legitimate path from a mediator to a ViewModel is the constructor seam, in tests.
+
+bad
+```dart
+late final AppMediator mediator; // global — anyone can import and bypass
 
 void initializeDependencies() {
-  final todoRepository = InMemoryTodoRepository();
-  mediator = AppMediator(todoRepository: todoRepository)
-    ..addMiddleware(LoggingMiddleware());
+  mediator = AppMediator(todoRepository: InMemoryTodoRepository());
 }
 
 void main() {
   initializeDependencies();
+  runApp(const MyApp());
+}
+```
 
-  runApp(
-    MaterialApp(
-      home: ViewModelProvider<TodoViewModel>(
-        create: (_) => TodoViewModel(mediator),
-        child: const TodoScreen(),
-      ),
-    ),
+good
+```dart
+void main() {
+  Chassis.initialize(
+    AppMediator(todoRepository: InMemoryTodoRepository())
+      ..addMiddleware(LoggingMiddleware()),
   );
+  runApp(const MyApp());
 }
 ```

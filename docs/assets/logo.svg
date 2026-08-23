@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- chassis — for dark backgrounds. 45°/90° grid, openings are transparent. -->
+  <g transform="translate(0,-12)">
+    <path fill="#29B6F6" stroke="#29B6F6" stroke-width="12" stroke-linejoin="round" fill-rule="evenodd"
+      d="M40,352 L40,288 L72,256 L168,256 L240,184 L344,184 L416,256 L448,256 L472,280 L472,352
+         L422,352 A50,50 0 0 0 322,352 L170,352 A50,50 0 0 0 70,352 L40,352 Z
+         M192,256 L240,208 L264,208 L264,256 Z
+         M288,256 L288,208 L344,208 L392,256 Z"/>
+    <path fill="#01579B" stroke="#01579B" stroke-width="12" stroke-linejoin="round"
+      d="M416,256 L448,256 L472,280 L472,352 L422,352 A50,50 0 0 0 370,302 Z"/>
+  </g>
+</svg>

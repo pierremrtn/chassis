@@ -8,7 +8,7 @@ This document formalizes the error handling strategy within the Chassis framewor
 
 ### DO use exceptions rather than Result types for error propagation
 
-Chassis is designed to handle thrown exceptions natively. The ViewModel's `run()` and `watch()` methods automatically catch exceptions and transition state to `AsyncError<T>`, or trigger the `onError` callback. Returning `Result<T, E>` types creates unnecessary boilerplate and breaks the clean `Future<T>` signatures expected by the generated Mediator.
+Chassis is designed to handle thrown exceptions natively. The ViewModel's `run()`, `read()`, and `watch()` methods catch anything thrown along the dispatch — asynchronously *or* synchronously — and report it as an `AsyncError<T>` through `onState` and `onError`. Returning `Result<T, E>` types creates unnecessary boilerplate and breaks the plain `Future<T>` / `Stream<T>` signatures that handlers declare.
 
 **Bad**
 
@@ -36,13 +36,13 @@ Repositories act as an anti-corruption layer. They must catch infrastructure-spe
 
 ```dart
 // Handler knows about Firebase (Breaks Dependency Rule)
-class GetUserHandler implements ReadHandler<GetUserQuery, User> {
+class GetUserQueryHandler implements ReadHandler<GetUserQuery, User> {
   @override
   Future<User> read(GetUserQuery query) async {
     try {
       return await _repository.getUser(query.userId);
     } on FirebaseException catch (e) {
-      throw DomainException(ErrorCode.permissionDenied);
+      throw PermissionDeniedException(e);
     }
   }
 }
@@ -83,9 +83,11 @@ Future<User> getUser(String userId) async {
 
 The Application layer (Handlers) depends only on Repository interfaces, never on concrete implementations (see [Core Architecture](01_core_architecture.md)). Let the repository handle the mapping, and let the Handler pass the domain exception upward.
 
-### DON'T catch the Mediator's own wiring exceptions
+### DON'T catch the Mediator's own wiring errors
 
-The Mediator throws `HandlerNotRegisteredException` when a message is dispatched with no registered handler, and `DuplicateHandlerException` when two handlers are registered for the same message type. Both extend the sealed `ChassisException` and are thrown identically in debug and release builds. They are programming errors — a wiring mistake to fix, never a runtime condition to recover from. Fix the registration (or annotate the handler with `@chassisHandler` and rebuild); don't catch.
+The Mediator throws `HandlerNotRegisteredError` when a message is dispatched with no registered handler, and `DuplicateHandlerError` when two handlers are registered for the same message type. Both extend the sealed `ChassisError`, which extends `Error` — not `Exception`. The type system itself says it: like `TypeError` or `RangeError`, these describe programming bugs — a wiring mistake to fix, never a runtime condition to recover from. An `on Exception catch` clause written for domain failures will never match them, and `CrashReportingMiddleware` classifies them as **fatal**.
+
+In practice they should rarely survive to runtime at all: chassis_builder turns a concrete message reachable from the `@ChassisApp` graph with no handler into a *build* error (see [Code Generation](03_code_generation.md)). If one does reach you — a manually registered mediator, a message opted out with `@unhandledMessage` — the fix is registration: annotate the handler with `@chassisHandler` and rebuild, or register it on the mediator; don't catch. Note that at the ViewModel call site the dispatch failure still surfaces as an `AsyncError` (the UI never crashes mid-frame), but the middleware has already reported it as fatal — the only correct response is fixing the wiring.
 
 ---
 
@@ -101,16 +103,16 @@ Before throwing, ask whether the condition is part of the operation's normal dom
 
 ### DO catch recoverable domain exceptions in Handlers
 
-When a handler can meaningfully react to an exception thrown by a repository or a sub-query, catch it there. This keeps recoverable conditions out of `AsyncError` and prevents the UI from showing error screens for normal states. The handler is the only layer that has enough business context to decide what "recoverable" means.
+When a handler can meaningfully react to an exception thrown by a repository, catch it there. This keeps recoverable conditions out of `AsyncError` and prevents the UI from showing error screens for normal states. The handler is the only layer that has enough business context to decide what "recoverable" means.
 
 **Bad**
 
 ```dart
 // Lets a recoverable condition bubble up to the UI
-class WatchCartHandler implements WatchHandler<WatchCartQuery, ShoppingCart> {
+class WatchCartQueryHandler implements WatchHandler<WatchCartQuery, ShoppingCart> {
   final CartRepository cartRepository;
 
-  WatchCartHandler({required this.cartRepository});
+  WatchCartQueryHandler({required this.cartRepository});
 
   @override
   Stream<ShoppingCart> watch(WatchCartQuery query) {
@@ -125,10 +127,10 @@ class WatchCartHandler implements WatchHandler<WatchCartQuery, ShoppingCart> {
 
 ```dart
 // Converts the expected "no cart yet" outcome into an empty state
-class WatchCartHandler implements WatchHandler<WatchCartQuery, ShoppingCart> {
+class WatchCartQueryHandler implements WatchHandler<WatchCartQuery, ShoppingCart> {
   final CartRepository cartRepository;
 
-  WatchCartHandler({required this.cartRepository});
+  WatchCartQueryHandler({required this.cartRepository});
 
   @override
   Stream<ShoppingCart> watch(WatchCartQuery query) async* {
@@ -143,7 +145,7 @@ class WatchCartHandler implements WatchHandler<WatchCartQuery, ShoppingCart> {
 
 ### DON'T catch exceptions you cannot recover from
 
-Catching an exception only to rethrow it — or worse, to swallow it silently — hides failures from the crash reporter and makes bugs much harder to diagnose. Only catch when the handler has a meaningful response: return a default, try an alternate path, or convert one domain exception into a more specific one. Otherwise, let the exception bubble up so Chassis can route it to `AsyncError` and the middleware can report it.
+Catching an exception only to rethrow it — or worse, to swallow it silently — hides failures from the crash reporter and makes bugs much harder to diagnose. Only catch when the handler has a meaningful response: return a default, try an alternate path, or convert one domain exception into a more specific one. Otherwise, let the exception bubble up so Chassis can route it to `AsyncError` and the middleware chain can report it.
 
 ### DO model business rule failures as domain exceptions
 
@@ -157,7 +159,7 @@ Business rule failures and infrastructure failures share the same mechanism (typ
 
 A domain exception has to serve two audiences simultaneously. The user needs a friendly, localized message they can understand, and — when things go wrong in production — a short identifier they can quote back to customer support. The developer on call needs the underlying infrastructure error and its stack trace. A well-shaped exception carries all three: a stable code, any data the user-facing message needs to interpolate, and the original error when one exists.
 
-Chassis does not ship a base class for domain exceptions, and deliberately so. Each application has its own taxonomy of business failures, and no framework-provided hierarchy can capture that without being either too narrow or in the way. Implement `Exception` directly, shape the fields to the needs of the operation, and use the conventions below to keep the codes stable across releases.
+Chassis does not ship a base class for domain exceptions, and deliberately so. Each application has its own taxonomy of business failures, and no framework-provided hierarchy can capture that without being either too narrow or in the way. Implement `Exception` directly, shape the fields to the needs of the operation, and use the conventions below to keep the codes stable across releases. Implementing `Exception` (rather than `Error`) also matters for observability: `CrashReportingMiddleware` classifies Dart `Error`s as fatal bugs and everything else as expected, non-fatal domain failures (see below).
 
 ### DO use stable string identifiers for error codes
 
@@ -239,24 +241,61 @@ class ItemNotFoundException implements Exception, HasErrorCode {
 
 ---
 
-## Presentation & Global Safety
+## Presentation
 
-Chassis exposes three channels a ViewModel can use to surface an error from `run()` or `watch()`: the operation's result can flow into `Async<T>` state via `onState`, the ViewModel can dispatch an event via `sendEvent` from an `onError` callback, or it can retain the last-good value through the `previous` field carried by `AsyncLoading<T>` and `AsyncError<T>` and flag a soft error. The right channel depends on one question — *after the error happens, is the current view still useful?* The two rules below capture the default answer for queries and commands; both are preferences, not laws, and the app's UX language sometimes demands inverting them.
+Chassis exposes three channels a ViewModel can use to surface an error from `run()`, `read()`, or `watch()`: the operation's result can flow into `Async<T>` state via `onState`; the ViewModel can dispatch a one-time event via `sendEvent` from the `onError` callback — invoked with `(Object error, StackTrace stack)`, *after* `onState`, for the error transition; or it can retain the last-good value through the `previous` field carried by `AsyncLoading<T>` and `AsyncError<T>` and flag a soft error. The right channel depends on one question — *after the error happens, is the current view still useful?* The two `PREFER` rules below capture the default answer for queries and commands; both are preferences, not laws, and the app's UX language sometimes demands inverting them. What is *not* negotiable is that some channel handles the error: every dispatch must cover the error path.
 
-### PREFER routing query errors through Async state
+### DON'T dispatch with only a success callback
 
-Queries exist to produce the data a screen renders. When a query fails, there is usually nothing meaningful to show without its result, and the natural place for the error is `Async<T>` state — `AsyncError<T>` drives `AsyncBuilder.errorBuilder`, which renders a full view error with optional retry. Flow the error through `onState` so the loading, data, and error rendering all come from the same source of truth.
+`onSuccess` (and watch's `onData`) are additive conveniences layered on top of `onState` — providing them never suppresses anything, and none of them handles errors. A `run`/`read` whose only callback is `onSuccess` makes failures invisible: the user taps, the operation fails, and nothing happens — no state change, no event, no message. Cover the error path on every dispatch with `onState` (which fires for *every* transition, including `AsyncError`) or `onError`. A future chassis lint will flag `onSuccess`-only dispatches.
+
+**Bad**
+
+```dart
+// A failure fires no callback at all: tapping "Add" silently does nothing.
+void addToCart(String productId) => run(
+      AddToCartCommand(productId: productId),
+      onSuccess: (_) => sendEvent(const AddedToCartEvent()),
+    );
+```
 
 **Good**
 
 ```dart
-void loadUser(String userId) {
-  watch(
-    _mediator.watchUser(userId: userId),
-    key: #user,
-    current: state.user,
-    onState: (asyncUser) => setState(state.copyWith(user: asyncUser)),
-  );
+void addToCart(String productId) => run(
+      AddToCartCommand(productId: productId),
+      onSuccess: (_) => sendEvent(const AddedToCartEvent()),
+      onError: (error, stack) => sendEvent(AddToCartFailedEvent(error)),
+    );
+```
+
+### PREFER routing query errors through Async state
+
+Queries exist to produce the data a screen renders. When a query fails, there is usually nothing meaningful to show without its result, and the natural place for the error is `Async<T>` state — an `AsyncError<T>` in state drives the error branch of the rendering `switch` (or `AsyncBuilder.errorBuilder`), which renders a full view error with optional retry. Flow the error through `onState` so the loading, data, and error rendering all come from the same source of truth.
+
+**Good**
+
+```dart
+class UserViewModel extends ViewModel<UserState, UserEvent> {
+  UserViewModel({super.mediator}) : super(UserState.initial());
+
+  // onState receives every transition — loading, data, AND error — so the
+  // error path is covered by construction.
+  void loadUser(String userId) => read(
+        GetUserQuery(userId: userId),
+        policy: const RunPolicy.restartable(),
+        current: state.user,
+        onState: (user) => setState(state.copyWith(user: user)),
+      );
+
+  // Same shape for a live query. Re-calling watchUser with a new id
+  // replaces the previous subscription: watches are keyed by query type
+  // by default, and stream errors arrive through onState as soft errors.
+  void watchUser(String userId) => watch(
+        WatchUserQuery(userId: userId),
+        current: state.user,
+        onState: (user) => setState(state.copyWith(user: user)),
+      );
 }
 ```
 
@@ -269,12 +308,33 @@ Commands are triggered by user intent on a screen that already has valid content
 **Good**
 
 ```dart
-void save(EditProfileForm form) {
-  run(
-    () => _mediator.updateProfile(form: form),
-    onSuccess: (_) => sendEvent(ProfileSavedEvent()),
-    onError: (error) => sendEvent(ProfileSaveFailedEvent(error)),
-  );
+void save(EditProfileForm form) => run(
+      UpdateProfileCommand(form: form),
+      onSuccess: (_) => sendEvent(const ProfileSavedEvent()),
+      onError: (error, stack) => sendEvent(ProfileSaveFailedEvent(error)),
+    );
+```
+
+The failure event carries the error *object*, never `error.toString()` — a stringified error destroys the pattern matching that translation (and any other listener logic) relies on:
+
+**Bad**
+
+```dart
+// Stringly-typed event: the listener can only display the raw string.
+final class ProfileSaveFailedEvent {
+  const ProfileSaveFailedEvent(this.message);
+  final String message;
+}
+```
+
+**Good**
+
+```dart
+// The event carries the error object; the event listener translates it
+// at display time (context.translateError(event.error)).
+final class ProfileSaveFailedEvent {
+  const ProfileSaveFailedEvent(this.error);
+  final Object error;
 }
 ```
 
@@ -282,15 +342,16 @@ Invert this default when the command fundamentally replaces the view — submitt
 
 ### CONSIDER using Async<T>.previous to keep content visible through transient failures
 
-Watch queries that hiccup mid-stream — a lost socket, a momentary Firestore outage — rarely need to blow away the last-good snapshot. `Async<T>` exposes a `previous` field on both `AsyncLoading<T>` and `AsyncError<T>`, and `AsyncBuilder.maintainState` (default `true`) keeps rendering the previous data while the error is active. Combined with the handler-level recovery pattern from *Deciding Where to Catch*, this lets the UI stay useful through transient failures without forcing the user through a full error screen.
+Watch queries that hiccup mid-stream — a lost socket, a momentary Firestore outage — rarely need to blow away the last-good snapshot. `watch` reports stream errors as *soft* errors: the `AsyncError<T>` it emits carries the last known data in `previous`. When rendering with an inline `switch`, match `AsyncError(previous: AsyncData(:final value))` before the bare error case to keep the content on screen; `AsyncBuilder` exists for exactly this behavior (`maintainState`, default `true`, keeps rendering the previous data while the error is active). Combined with the handler-level recovery pattern from *Deciding Where to Catch*, this lets the UI stay useful through transient failures without forcing the user through a full error screen.
 
 ### DO translate exceptions in the Presentation layer
 
-The Domain layer knows nothing about `BuildContext` or localization packages. Translating strings must happen exclusively in the UI layer. Pattern match on the exception type so that typed fields — like the missing item's name or the available stock — can flow directly into the localized message without going through a stringly-typed map.
+The Domain layer knows nothing about `BuildContext` or localization packages. Translating strings must happen exclusively in the UI layer. Pattern match on the exception type so that typed fields — like the missing item's name or the available stock — can flow directly into the localized message without going through a stringly-typed map. `context.translateError` is a helper *your project* defines and owns; Chassis ships no translation API.
 
 **Good**
 
 ```dart
+/// Project-level helper — not a Chassis API.
 extension ErrorTranslation on BuildContext {
   String translateError(Object error) {
     final loc = AppLocalizations.of(this)!;
@@ -310,30 +371,67 @@ Pattern matching gives the switch access to the typed fields of each exception f
 
 ### PREFER displaying both the translated message and the error code to users
 
-When rendering errors using `AsyncBuilder.errorBuilder`, show the translated message alongside the stable error code. Users cannot read a stack trace, but they can read a short identifier off their screen and repeat it to customer support, which turns an opaque failure into an actionable ticket. The raw exception should only appear in debug builds, where it helps the developer on the other end.
+When rendering the error branch, show the translated message alongside the stable error code. Users cannot read a stack trace, but they can read a short identifier off their screen and repeat it to customer support, which turns an opaque failure into an actionable ticket. The raw exception should only appear in debug builds, where it helps the developer on the other end.
 
 **Good**
 
 ```dart
-AsyncBuilder<User>(
-  state: context.select((UserViewModel vm) => vm.state.user),
-  errorBuilder: (context, error) {
-    final code = error is HasErrorCode ? error.code : 'unknown';
+Widget build(BuildContext context) {
+  final user = context.select((UserViewModel vm) => vm.state.user);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(context.translateError(error)),
-        Text(
-          'Error code: $code',
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
-        if (kDebugMode) Text('Dev: $error'),
-      ],
-    );
-  },
-)
+  return switch (user) {
+    AsyncData(:final value) => UserProfileView(user: value),
+    AsyncLoading() => const Center(child: CircularProgressIndicator()),
+    AsyncError(:final error) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(context.translateError(error)),
+          Text(
+            'Error code: ${error is HasErrorCode ? error.code : 'unknown'}',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          if (kDebugMode) Text('Dev: $error'),
+        ],
+      ),
+  };
+}
 ```
+
+---
+
+## Observability: the Middleware Chain Is the Observer
+
+Coming from other state-management frameworks, you might look for the equivalent of a `BlocObserver` or a `ProviderObserver`. Chassis has none — by design. Every operation in a Chassis app crosses the mediator as a typed message, so the middleware chain *is* the observability channel: a middleware sees the message itself and its declared `params`, covers commands, reads, and watch streams alike, and is wired exactly once, at the composition root. There is no per-ViewModel, per-screen, or per-handler instrumentation to keep in sync.
+
+The complete wiring lives in `main()`, on the mediator passed to `Chassis.initialize`:
+
+```dart
+void main() {
+  Chassis.initialize(AppMediator(
+    userRepository: FirebaseUserRepository(),
+    cartRepository: FirestoreCartRepository(),
+  )
+    ..addMiddleware(LoggingMiddleware())
+    ..addMiddleware(CrashReportingMiddleware(
+      (error, stack, {required fatal}) => FirebaseCrashlytics.instance
+          .recordError(error, stack, fatal: fatal),
+    )));
+  runApp(const MyApp());
+}
+```
+
+### DO wire `CrashReportingMiddleware` so no failure goes unnoticed
+
+If a repository author forgets to map an infrastructure error, or an unexpected crash occurs, it should not go unnoticed. Chassis ships `CrashReportingMiddleware` for exactly this: it reports every failure crossing the mediator to your telemetry callback with the preserved stack trace, then lets it propagate — reporting never swallows failures, so the ViewModel still transitions to `AsyncError<T>`.
+
+Failures are classified with Dart's own distinction, passed to your callback as `fatal`:
+
+- A Dart `Error` — a `TypeError` in a handler, a `ChassisError` wiring mistake — is a **programming bug** and is reported as **fatal**.
+- Anything else — `Exception`s, your domain failures — is an **expected runtime failure** and is reported as **non-fatal**.
+
+This split is what keeps crash dashboards honest: real bugs page someone, while `payment_declined` shows up as telemetry, not as a crash. It is also why domain failures must implement `Exception`, never extend `Error`.
+
+Watch queries are covered end to end: each error flowing through the watched stream is reported *and* forwarded to the subscriber — the ViewModel still receives its soft `AsyncError`. A handler that throws synchronously at subscription (including a wiring error) is reported, then rethrown into the normal dispatch protection.
 
 ### CONSIDER wiring `LoggingMiddleware` to trace every operation
 
@@ -342,40 +440,34 @@ Chassis ships a `LoggingMiddleware` that records every dispatch — command, rea
 **Good**
 
 ```dart
-final mediator = AppMediator(/* dependencies */)
-  ..addMiddleware(LoggingMiddleware());
-
-// Development: also trace dispatch starts and stream emissions
-mediator.addMiddleware(LoggingMiddleware(logStart: true, logStreamEvents: true));
+// Development: also trace dispatch starts and stream emissions.
+Chassis.initialize(
+  AppMediator(userRepository: FirebaseUserRepository())
+    ..addMiddleware(LoggingMiddleware(logStart: true, logStreamEvents: true)),
+);
 ```
 
 Remember that `params` flows into these traces — override it on your messages for observability, and never include secrets in it.
 
-### CONSIDER using a global Mediator middleware for crash reporting
+### CONSIDER writing custom middlewares for other telemetry channels
 
-If a repository author forgets to map an infrastructure error, or an unexpected crash occurs, it should not go unnoticed. Implement a middleware to catch all unhandled exceptions at the Mediator level, forward them to your telemetry service (like Crashlytics) with the preserved stack trace, and then rethrow so the ViewModel still transitions to `AsyncError<T>`.
+Analytics, performance tracing, or breadcrumbs follow the same shape: extend `MediatorMiddleware` and override the hooks you need — `onRun` for commands, `onRead` for read queries, `onWatch` for watch streams. Hooks you don't override keep their pass-through defaults. Middlewares observe, enrich, or block the message on its way to the handler; they never dispatch messages themselves — a multi-step flow belongs in a single handler composing several repositories.
 
 **Good**
 
 ```dart
-class CrashReportingMiddleware extends MediatorMiddleware {
-  CrashReportingMiddleware(this._reporter);
+class AnalyticsMiddleware extends MediatorMiddleware {
+  AnalyticsMiddleware(this._analytics);
 
-  final ICrashReporter _reporter;
+  final AnalyticsService _analytics;
 
   @override
-  Future<R> onRun<C extends Command<R>, R>(C command, NextRun<C, R> next) async {
-    try {
-      return await next(command);
-    } catch (error, stack) {
-      _reporter.report(error, stack);
-      rethrow;
-    }
+  Future<R> onRun<R>(Command<R> command, NextRun<R> next) async {
+    final result = await next(command);
+    _analytics.track('command_${command.runtimeType}', command.params);
+    return result;
   }
-
-  // Mirror the same try/catch/rethrow shape for onRead and onWatch
-  // so read queries and watch streams are covered as well.
 }
 ```
 
-The middleware is the last line of defence: it should never swallow errors, only observe them. Apply the same pattern to `onRead` and `onWatch` so every message type flows through crash reporting. Extending `MediatorMiddleware` (rather than implementing it) means the hooks you don't override keep their pass-through defaults.
+Like the built-in middlewares, a custom one must never swallow errors: observe, then rethrow (or simply don't catch). The last line of defence only works if every failure keeps propagating.

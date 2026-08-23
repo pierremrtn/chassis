@@ -20,5 +20,7 @@ nav:
   - 'Business Logic': '02_business_logic.md'
   - 'Code Generation': '03_code_generation.md'
   - 'UI Integration': '04_ui_integration.md'
+  - 'Hard Cases': '05_hard_cases.md'
+  - 'What a Feature Costs': '06_feature_costs.md'
   - 'Coding Rules': 'coding_rules.md'
   - 'Error Management': 'error_management.md'
