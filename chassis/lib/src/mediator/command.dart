@@ -1,3 +1,5 @@
+import 'params_equality.dart';
+
 /// Abstract base class for commands that can be executed through the mediator.
 ///
 /// Commands represent operations that modify state or perform side effects.
@@ -6,25 +8,38 @@
 ///
 /// Example usage:
 /// ```dart
-/// final class CreateUserCommand extends Command<User> {
-///   CreateUserCommand({
-///     required this.name,
-///     required this.email,
-///   });
-///
-///   final String name;
-///   final String email;
-/// }
+/// final class CreateUserCommand({
+///   required final String name,
+///   required final String email,
+/// }) extends Command<User>;
 /// ```
 abstract base class Command<R> {
-  /// Parameters of this command, for logging and tracing purposes.
+  /// Parameters of this command, for logging, tracing, and identity.
   ///
-  /// Override to expose the command's fields. Used by [toString] and by
+  /// Override to expose the command's fields. Used by [toString], by
   /// `LoggingMiddleware` so a trace reads `CreateUserCommand{name: John}`
-  /// instead of a bare type name.
+  /// instead of a bare type name, and by [operator ==] as the message's
+  /// identity.
   ///
   /// Never include secrets (passwords, tokens) in [params].
   Map<String, Object?> get params => const {};
+
+  /// Two messages of the same type with equal [params] are the same
+  /// operation.
+  ///
+  /// This is the identity contract middlewares (caching, deduplication)
+  /// and tooling may rely on: a message is fully described by its type and
+  /// its [params]. A field that affects the operation but is left out of
+  /// [params] breaks that contract.
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Command<R> &&
+          other.runtimeType == runtimeType &&
+          paramsEquals(other.params, params);
+
+  @override
+  int get hashCode => Object.hash(runtimeType, paramsHash(params));
 
   @override
   String toString() => params.isEmpty ? '$runtimeType' : '$runtimeType$params';
@@ -41,12 +56,10 @@ abstract base class Command<R> {
 /// Example usage:
 /// ```dart
 /// @chassisHandler
-/// class CreateUserCommandHandler implements CommandHandler<CreateUserCommand, User> {
-///   CreateUserCommandHandler(this._repository, this._auditLogger);
-///
-///   final UserRepository _repository;
-///   final AuditLogger _auditLogger;
-///
+/// class CreateUserCommandHandler(
+///   final UserRepository _repository,
+///   final AuditLogger _auditLogger,
+/// ) implements CommandHandler<CreateUserCommand, User> {
 ///   @override
 ///   Future<User> run(CreateUserCommand command) async {
 ///     await _auditLogger.logAction('Creating user: ${command.email}');

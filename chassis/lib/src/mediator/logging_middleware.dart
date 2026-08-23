@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'command.dart';
+import 'dispatch_context.dart';
 import 'middleware.dart';
 import 'query.dart';
 
@@ -26,33 +27,23 @@ enum ChassisLogEvent {
 enum ChassisLogKind { run, read, watch }
 
 /// A single trace entry produced by [LoggingMiddleware].
-class ChassisLogRecord {
-  const ChassisLogRecord({
-    required this.event,
-    required this.kind,
-    required this.request,
-    required this.params,
-    this.elapsed,
-    this.error,
-    this.stackTrace,
-  });
-
-  final ChassisLogEvent event;
-  final ChassisLogKind kind;
+class const ChassisLogRecord({
+  required final ChassisLogEvent event,
+  required final ChassisLogKind kind,
 
   /// The dispatched command or query. Its `toString` includes [params].
-  final Object request;
+  required final Object request,
 
   /// The request's declared parameters (see `Command.params` / `Query.params`).
-  final Map<String, Object?> params;
+  required final Map<String, Object?> params,
 
   /// Time elapsed since dispatch. Null for [ChassisLogEvent.start].
-  final Duration? elapsed;
+  final Duration? elapsed,
 
   /// The error, for [ChassisLogEvent.error] records.
-  final Object? error;
-  final StackTrace? stackTrace;
-
+  final Object? error,
+  final StackTrace? stackTrace,
+}) {
   @override
   String toString() {
     final verb = kind.name;
@@ -74,9 +65,7 @@ abstract interface class ChassisLogSink {
 }
 
 /// Default sink: prints each record.
-class PrintLogSink implements ChassisLogSink {
-  const PrintLogSink();
-
+class const PrintLogSink() implements ChassisLogSink {
   @override
   void write(ChassisLogRecord record) {
     // ignore: avoid_print — this sink's single purpose is console output.
@@ -98,28 +87,22 @@ class PrintLogSink implements ChassisLogSink {
 /// final mediator = AppMediator(...)
 ///   ..addMiddleware(LoggingMiddleware());
 /// ```
-class LoggingMiddleware extends MediatorMiddleware {
-  LoggingMiddleware({
-    ChassisLogSink sink = const PrintLogSink(),
-    this.logStart = false,
-    this.logStreamEvents = false,
-  }) : _sink = sink;
-
-  final ChassisLogSink _sink;
+class LoggingMiddleware({
+  final ChassisLogSink _sink = const PrintLogSink(),
 
   /// Whether to emit a record when an operation is dispatched, in addition
   /// to its outcome. Defaults to false.
-  final bool logStart;
+  final bool logStart = false,
 
   /// Whether to emit a record for every stream emission of a watch query.
   /// Defaults to false (only subscription, errors, and completion are logged).
-  final bool logStreamEvents;
-
+  final bool logStreamEvents = false,
+}) extends MediatorMiddleware {
   Map<String, Object?> _paramsOf(Object request) => switch (request) {
-        Command<Object?>(:final params) => params,
-        Query<Object?>(:final params) => params,
-        _ => const {},
-      };
+    Command<Object?>(:final params) => params,
+    Query<Object?>(:final params) => params,
+    _ => const {},
+  };
 
   void _write(
     ChassisLogEvent event,
@@ -129,15 +112,17 @@ class LoggingMiddleware extends MediatorMiddleware {
     Object? error,
     StackTrace? stackTrace,
   }) {
-    _sink.write(ChassisLogRecord(
-      event: event,
-      kind: kind,
-      request: request,
-      params: _paramsOf(request),
-      elapsed: elapsed,
-      error: error,
-      stackTrace: stackTrace,
-    ));
+    _sink.write(
+      ChassisLogRecord(
+        event: event,
+        kind: kind,
+        request: request,
+        params: _paramsOf(request),
+        elapsed: elapsed,
+        error: error,
+        stackTrace: stackTrace,
+      ),
+    );
   }
 
   Future<R> _traceFuture<R>(
@@ -165,12 +150,20 @@ class LoggingMiddleware extends MediatorMiddleware {
   }
 
   @override
-  Future<R> onRun<C extends Command<R>, R>(C command, NextRun<C, R> next) {
+  Future<R> onRun<R>(
+    Command<R> command,
+    NextRun<R> next, {
+    DispatchContext? context,
+  }) {
     return _traceFuture(ChassisLogKind.run, command, () => next(command));
   }
 
   @override
-  Future<R> onRead<Q extends ReadQuery<R>, R>(Q query, NextRead<Q, R> next) {
+  Future<R> onRead<R>(
+    ReadQuery<R> query,
+    NextRead<R> next, {
+    DispatchContext? context,
+  }) {
     return _traceFuture(ChassisLogKind.read, query, () => next(query));
   }
 
@@ -181,10 +174,11 @@ class LoggingMiddleware extends MediatorMiddleware {
   /// several listeners, per-event and error records are emitted once per
   /// listener.
   @override
-  Stream<R> onWatch<Q extends WatchQuery<R>, R>(
-    Q query,
-    NextWatch<Q, R> next,
-  ) {
+  Stream<R> onWatch<R>(
+    WatchQuery<R> query,
+    NextWatch<R> next, {
+    DispatchContext? context,
+  }) {
     final watch = Stopwatch()..start();
     if (logStart) _write(ChassisLogEvent.start, ChassisLogKind.watch, query);
 
@@ -204,38 +198,40 @@ class LoggingMiddleware extends MediatorMiddleware {
 
     // StreamTransformer.fromHandlers preserves isBroadcast, unlike an
     // async* wrapper which would force single-subscription semantics.
-    return source.transform(StreamTransformer<R, R>.fromHandlers(
-      handleData: (value, sink) {
-        if (logStreamEvents) {
+    return source.transform(
+      StreamTransformer<R, R>.fromHandlers(
+        handleData: (value, sink) {
+          if (logStreamEvents) {
+            _write(
+              ChassisLogEvent.streamEvent,
+              ChassisLogKind.watch,
+              query,
+              elapsed: watch.elapsed,
+            );
+          }
+          sink.add(value);
+        },
+        handleError: (error, stackTrace, sink) {
           _write(
-            ChassisLogEvent.streamEvent,
+            ChassisLogEvent.error,
+            ChassisLogKind.watch,
+            query,
+            elapsed: watch.elapsed,
+            error: error,
+            stackTrace: stackTrace,
+          );
+          sink.addError(error, stackTrace);
+        },
+        handleDone: (sink) {
+          _write(
+            ChassisLogEvent.streamDone,
             ChassisLogKind.watch,
             query,
             elapsed: watch.elapsed,
           );
-        }
-        sink.add(value);
-      },
-      handleError: (error, stackTrace, sink) {
-        _write(
-          ChassisLogEvent.error,
-          ChassisLogKind.watch,
-          query,
-          elapsed: watch.elapsed,
-          error: error,
-          stackTrace: stackTrace,
-        );
-        sink.addError(error, stackTrace);
-      },
-      handleDone: (sink) {
-        _write(
-          ChassisLogEvent.streamDone,
-          ChassisLogKind.watch,
-          query,
-          elapsed: watch.elapsed,
-        );
-        sink.close();
-      },
-    ));
+          sink.close();
+        },
+      ),
+    );
   }
 }

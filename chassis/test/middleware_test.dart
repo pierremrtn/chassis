@@ -1,28 +1,28 @@
 import 'package:chassis/chassis.dart';
 import 'package:test/test.dart';
 
-final class PingQuery extends ReadQuery<String> {}
+final class PingQuery() extends ReadQuery<String>;
 
 class PingHandler implements ReadHandler<PingQuery, String> {
   @override
   Future<String> read(PingQuery query) async => 'pong';
 }
 
-final class TickQuery extends WatchQuery<int> {}
+final class TickQuery() extends WatchQuery<int>;
 
 class TickHandler implements WatchHandler<TickQuery, int> {
   @override
   Stream<int> watch(TickQuery query) => Stream.fromIterable([1, 2]);
 }
 
-final class NoopCommand extends Command<void> {}
+final class NoopCommand() extends Command<void>;
 
 class NoopHandler implements CommandHandler<NoopCommand, void> {
   @override
   Future<void> run(NoopCommand command) async {}
 }
 
-final class FailingCommand extends Command<void> {}
+final class FailingCommand() extends Command<void>;
 
 class FailingHandler implements CommandHandler<FailingCommand, void> {
   @override
@@ -32,15 +32,14 @@ class FailingHandler implements CommandHandler<FailingCommand, void> {
 }
 
 /// Records the order in which it sees operations, tagged with its own name.
-class RecordingMiddleware extends MediatorMiddleware {
-  RecordingMiddleware(this.name, this.log);
-
-  final String name;
-  final List<String> log;
-
+class RecordingMiddleware(final String name, final List<String> log)
+    extends MediatorMiddleware {
   @override
-  Future<R> onRun<C extends Command<R>, R>(
-      C command, NextRun<C, R> next) async {
+  Future<R> onRun<R>(
+    Command<R> command,
+    NextRun<R> next, {
+    DispatchContext? context,
+  }) async {
     log.add('$name:before');
     final result = await next(command);
     log.add('$name:after');
@@ -48,8 +47,11 @@ class RecordingMiddleware extends MediatorMiddleware {
   }
 
   @override
-  Future<R> onRead<Q extends ReadQuery<R>, R>(
-      Q query, NextRead<Q, R> next) async {
+  Future<R> onRead<R>(
+    ReadQuery<R> query,
+    NextRead<R> next, {
+    DispatchContext? context,
+  }) async {
     log.add('$name:before');
     final result = await next(query);
     log.add('$name:after');
@@ -57,8 +59,46 @@ class RecordingMiddleware extends MediatorMiddleware {
   }
 
   @override
-  Stream<R> onWatch<Q extends WatchQuery<R>, R>(Q query, NextWatch<Q, R> next) {
+  Stream<R> onWatch<R>(
+    WatchQuery<R> query,
+    NextWatch<R> next, {
+    DispatchContext? context,
+  }) {
     log.add('$name:watch');
+    return next(query);
+  }
+}
+
+/// Records the [DispatchContext] it receives for each operation.
+class ContextSpyMiddleware(final List<DispatchContext?> seen)
+    extends MediatorMiddleware {
+  @override
+  Future<R> onRun<R>(
+    Command<R> command,
+    NextRun<R> next, {
+    DispatchContext? context,
+  }) {
+    seen.add(context);
+    return next(command);
+  }
+
+  @override
+  Future<R> onRead<R>(
+    ReadQuery<R> query,
+    NextRead<R> next, {
+    DispatchContext? context,
+  }) {
+    seen.add(context);
+    return next(query);
+  }
+
+  @override
+  Stream<R> onWatch<R>(
+    WatchQuery<R> query,
+    NextWatch<R> next, {
+    DispatchContext? context,
+  }) {
+    seen.add(context);
     return next(query);
   }
 }
@@ -130,12 +170,46 @@ void main() {
       expect(await mediator.read(PingQuery()), 'PONG');
     });
   });
+
+  group('DispatchContext propagation', () {
+    test('the context instance reaches every middleware of the chain', () async {
+      final outer = <DispatchContext?>[];
+      final inner = <DispatchContext?>[];
+      final mediator = Mediator()
+        ..registerQueryHandler(PingHandler())
+        ..registerCommandHandler(NoopHandler())
+        ..registerQueryHandler(TickHandler())
+        ..addMiddleware(ContextSpyMiddleware(outer))
+        ..addMiddleware(ContextSpyMiddleware(inner));
+
+      const context = DispatchContext(dispatchId: 42);
+      await mediator.run(NoopCommand(), context: context);
+      await mediator.read(PingQuery(), context: context);
+      await mediator.watch(TickQuery(), context: context).toList();
+
+      expect(outer, [same(context), same(context), same(context)]);
+      expect(inner, [same(context), same(context), same(context)]);
+    });
+
+    test('context is null when the caller passes none', () async {
+      final seen = <DispatchContext?>[];
+      final mediator = Mediator()
+        ..registerCommandHandler(NoopHandler())
+        ..addMiddleware(ContextSpyMiddleware(seen));
+
+      await mediator.run(NoopCommand());
+      expect(seen, [null]);
+    });
+  });
 }
 
 class _UppercaseMiddleware extends MediatorMiddleware {
   @override
-  Future<R> onRead<Q extends ReadQuery<R>, R>(
-      Q query, NextRead<Q, R> next) async {
+  Future<R> onRead<R>(
+    ReadQuery<R> query,
+    NextRead<R> next, {
+    DispatchContext? context,
+  }) async {
     final result = await next(query);
     if (result is String) return result.toUpperCase() as R;
     return result;

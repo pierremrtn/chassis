@@ -1,18 +1,37 @@
 import 'dart:async';
 
+import 'params_equality.dart';
+
 /// Abstract interface for queries that can be executed through the mediator.
 ///
 /// Queries represent read operations that retrieve data without modifying state.
 /// They are the foundation for both one-time reads and continuous watching.
 sealed class Query<T> {
-  /// Parameters of this query, for logging and tracing purposes.
+  /// Parameters of this query, for logging, tracing, and identity.
   ///
-  /// Override to expose the query's fields. Used by [toString] and by
+  /// Override to expose the query's fields. Used by [toString], by
   /// `LoggingMiddleware` so a trace reads `GetUserQuery{id: 42}` instead of
-  /// a bare type name.
+  /// a bare type name, and by [operator ==] as the message's identity.
   ///
   /// Never include secrets (passwords, tokens) in [params].
   Map<String, Object?> get params => const {};
+
+  /// Two messages of the same type with equal [params] are the same
+  /// operation.
+  ///
+  /// This is the identity contract middlewares (caching, deduplication)
+  /// and tooling may rely on: a message is fully described by its type and
+  /// its [params]. A field that affects the operation but is left out of
+  /// [params] breaks that contract.
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Query<T> &&
+          other.runtimeType == runtimeType &&
+          paramsEquals(other.params, params);
+
+  @override
+  int get hashCode => Object.hash(runtimeType, paramsHash(params));
 
   @override
   String toString() => params.isEmpty ? '$runtimeType' : '$runtimeType$params';
@@ -26,11 +45,8 @@ sealed class Query<T> {
 ///
 /// Example usage:
 /// ```dart
-/// final class GetUserQuery extends ReadQuery<User> {
-///   GetUserQuery({required this.userId});
-///
-///   final String userId;
-/// }
+/// final class GetUserQuery({required final String userId})
+///     extends ReadQuery<User>;
 /// ```
 abstract base class ReadQuery<T> extends Query<T> {}
 
@@ -42,11 +58,8 @@ abstract base class ReadQuery<T> extends Query<T> {}
 ///
 /// Example usage:
 /// ```dart
-/// final class WatchUserQuery extends WatchQuery<User> {
-///   WatchUserQuery({required this.userId});
-///
-///   final String userId;
-/// }
+/// final class WatchUserQuery({required final String userId})
+///     extends WatchQuery<User>;
 /// ```
 abstract base class WatchQuery<T> extends Query<T> {}
 
@@ -67,12 +80,10 @@ sealed class QueryHandler<Q extends Query<R>, R> {}
 /// Example usage:
 /// ```dart
 /// @chassisHandler
-/// class GetUserQueryHandler implements ReadHandler<GetUserQuery, User> {
-///   GetUserQueryHandler(this._userRepository, this._cacheService);
-///
-///   final UserRepository _userRepository;
-///   final CacheService _cacheService;
-///
+/// class GetUserQueryHandler(
+///   final UserRepository _userRepository,
+///   final CacheService _cacheService,
+/// ) implements ReadHandler<GetUserQuery, User> {
 ///   @override
 ///   Future<User> read(GetUserQuery query) async {
 ///     // Check cache first
@@ -109,12 +120,10 @@ abstract interface class ReadHandler<Q extends ReadQuery<R>, R>
 /// Example usage:
 /// ```dart
 /// @chassisHandler
-/// class WatchUserQueryHandler implements WatchHandler<WatchUserQuery, User> {
-///   WatchUserQueryHandler(this._userRepository, this._realtimeService);
-///
-///   final UserRepository _userRepository;
-///   final RealtimeService _realtimeService;
-///
+/// class WatchUserQueryHandler(
+///   final UserRepository _userRepository,
+///   final RealtimeService _realtimeService,
+/// ) implements WatchHandler<WatchUserQuery, User> {
 ///   @override
 ///   Stream<User> watch(WatchUserQuery query) {
 ///     // Combine multiple data sources

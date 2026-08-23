@@ -33,14 +33,16 @@ sealed class Async<T> {
   /// Note: for nullable `T`, `null` is ambiguous (absent vs. a real `null`
   /// value). Use [hasValue] or pattern matching to discriminate.
   T? get valueOrNull => switch (this) {
-        AsyncData<T>(:final value) => value,
-        AsyncLoading<T>(:final previous) => previous?.value,
-        AsyncError<T>(:final previous) => previous?.value,
-      };
+    AsyncData<T>(:final value) => value,
+    AsyncLoading<T>(:final previous) => previous?.value,
+    AsyncError<T>(:final previous) => previous?.value,
+  };
 
   /// The error if the LAST operation failed.
-  Object? get errorOrNull =>
-      switch (this) { AsyncError<T>(:final error) => error, _ => null };
+  Object? get errorOrNull => switch (this) {
+    AsyncError<T>(:final error) => error,
+    _ => null,
+  };
 
   bool get isLoading => this is AsyncLoading<T>;
 
@@ -49,23 +51,23 @@ sealed class Async<T> {
   ///
   /// Unlike a null-check on [valueOrNull], this is correct for nullable `T`.
   bool get hasValue => switch (this) {
-        AsyncData<T>() => true,
-        AsyncLoading<T>(:final previous) => previous != null,
-        AsyncError<T>(:final previous) => previous != null,
-      };
+    AsyncData<T>() => true,
+    AsyncLoading<T>(:final previous) => previous != null,
+    AsyncError<T>(:final previous) => previous != null,
+  };
 
   bool get hasError => this is AsyncError<T>;
 
   /// The available value, or throws a [StateError] if there is none.
   T get requireValue => switch (this) {
-        AsyncData<T>(:final value) => value,
-        AsyncLoading<T>(previous: AsyncData<T>(:final value)) => value,
-        AsyncError<T>(previous: AsyncData<T>(:final value)) => value,
-        _ => throw StateError(
-            'Async<$T>.requireValue called on $this which holds no value. '
-            'Check hasValue first, or pattern match on AsyncData.',
-          ),
-      };
+    AsyncData<T>(:final value) => value,
+    AsyncLoading<T>(previous: AsyncData<T>(:final value)) => value,
+    AsyncError<T>(previous: AsyncData<T>(:final value)) => value,
+    _ => throw StateError(
+      'Async<$T>.requireValue called on $this which holds no value. '
+      'Check hasValue first, or pattern match on AsyncData.',
+    ),
+  };
 
   // --- Combinators ---
 
@@ -86,13 +88,11 @@ sealed class Async<T> {
     required R Function(T value) data,
     required R Function() loading,
     required R Function(Object error, StackTrace? stackTrace) error,
-  }) =>
-      switch (this) {
-        AsyncData<T>(:final value) => data(value),
-        AsyncLoading<T>() => loading(),
-        AsyncError<T>(error: final e, :final stackTrace) =>
-          error(e, stackTrace),
-      };
+  }) => switch (this) {
+    AsyncData<T>(:final value) => data(value),
+    AsyncLoading<T>() => loading(),
+    AsyncError<T>(error: final e, :final stackTrace) => error(e, stackTrace),
+  };
 
   /// Transforms the value while preserving the state.
   ///
@@ -107,55 +107,58 @@ sealed class Async<T> {
   /// final Async<String> name = state.map((user) => user.name);
   /// ```
   Async<R> map<R>(R Function(T value) transform) => switch (this) {
-        AsyncData<T>(:final value) => AsyncData(transform(value)),
-        AsyncLoading<T>(:final previous) => AsyncLoading(
-            previous:
-                previous == null ? null : AsyncData(transform(previous.value)),
-          ),
-        AsyncError<T>(:final error, :final stackTrace, :final previous) =>
-          AsyncError(
-            error,
-            stackTrace: stackTrace,
-            previous:
-                previous == null ? null : AsyncData(transform(previous.value)),
-          ),
-      };
+    AsyncData<T>(:final value) => AsyncData(transform(value)),
+    AsyncLoading<T>(:final previous) => AsyncLoading(
+      previous: previous == null ? null : AsyncData(transform(previous.value)),
+    ),
+    AsyncError<T>(:final error, :final stackTrace, :final previous) =>
+      AsyncError(
+        error,
+        stackTrace: stackTrace,
+        previous: previous == null
+            ? null
+            : AsyncData(transform(previous.value)),
+      ),
+  };
 
   // --- State Transitions (Fluent API) ---
 
   /// Transitions to Loading state while keeping the current data (Refetching).
-  Async<T> toLoading() => AsyncLoading(previous: _carriedData);
+  Async<T> toLoading() => AsyncLoading(previous: maybeDataOrPrevious);
 
   /// Transitions to Data state (Success).
   Async<T> toData(T value) => AsyncData(value);
 
   /// Transitions to Error state while keeping the current data (Soft Error).
   Async<T> toError(Object error, StackTrace stack) =>
-      AsyncError(error, stackTrace: stack, previous: _carriedData);
+      AsyncError(error, stackTrace: stack, previous: maybeDataOrPrevious);
 
-  /// The [AsyncData] to carry through a transition: this state itself if it is
-  /// data, otherwise whatever it was already carrying.
-  AsyncData<T>? get _carriedData => switch (this) {
-        final AsyncData<T> data => data,
-        AsyncLoading<T>(:final previous) => previous,
-        AsyncError<T>(:final previous) => previous,
-      };
+  /// The last confirmed [AsyncData], if any: this state itself if it is data,
+  /// otherwise the [AsyncLoading.previous]/[AsyncError.previous] it carries.
+  ///
+  /// This is the [AsyncData] that state transitions ([toLoading], [toError])
+  /// carry forward. Unlike [valueOrNull], the wrapper makes "a value existed"
+  /// unambiguous for nullable `T`.
+  AsyncData<T>? get maybeDataOrPrevious => switch (this) {
+    final AsyncData<T> data => data,
+    AsyncLoading<T>(:final previous) => previous,
+    AsyncError<T>(:final previous) => previous,
+  };
 
   // --- Factories ---
 
   const factory Async.data(T value) = AsyncData<T>;
   const factory Async.loading({AsyncData<T>? previous}) = AsyncLoading<T>;
-  const factory Async.error(Object error,
-      {StackTrace? stackTrace, AsyncData<T>? previous}) = AsyncError<T>;
+  const factory Async.error(
+    Object error, {
+    StackTrace? stackTrace,
+    AsyncData<T>? previous,
+  }) = AsyncError<T>;
 }
 
 // --- Subclasses Implementation ---
 
-class AsyncData<T> extends Async<T> {
-  const AsyncData(this.value);
-
-  final T value;
-
+class const AsyncData<T>(final T value) extends Async<T> {
   @override
   bool operator ==(Object other) =>
       identical(this, other) || other is AsyncData<T> && other.value == value;
@@ -167,13 +170,11 @@ class AsyncData<T> extends Async<T> {
   String toString() => 'AsyncData<$T>($value)';
 }
 
-class AsyncLoading<T> extends Async<T> {
-  const AsyncLoading({this.previous});
-
+class const AsyncLoading<T>({
   /// The last successful state, if any. Non-null proves a value existed,
   /// even if that value is `null` (for nullable `T`).
-  final AsyncData<T>? previous;
-
+  final AsyncData<T>? previous,
+}) extends Async<T> {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -187,16 +188,14 @@ class AsyncLoading<T> extends Async<T> {
       'AsyncLoading<$T>(${previous == null ? '' : 'previous: $previous'})';
 }
 
-class AsyncError<T> extends Async<T> {
-  const AsyncError(this.error, {this.stackTrace, this.previous});
-
-  final Object error;
-  final StackTrace? stackTrace;
+class const AsyncError<T>(
+  final Object error, {
+  final StackTrace? stackTrace,
 
   /// The last successful state, if any. Non-null proves a value existed,
   /// even if that value is `null` (for nullable `T`).
-  final AsyncData<T>? previous;
-
+  final AsyncData<T>? previous,
+}) extends Async<T> {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||

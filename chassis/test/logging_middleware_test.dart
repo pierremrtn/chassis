@@ -1,11 +1,7 @@
 import 'package:chassis/chassis.dart';
 import 'package:test/test.dart';
 
-final class GetUserQuery extends ReadQuery<String> {
-  GetUserQuery(this.id);
-
-  final String id;
-
+final class GetUserQuery(final String id) extends ReadQuery<String> {
   @override
   Map<String, Object?> get params => {'id': id};
 }
@@ -15,7 +11,7 @@ class GetUserHandler implements ReadHandler<GetUserQuery, String> {
   Future<String> read(GetUserQuery query) async => 'user-${query.id}';
 }
 
-final class FailingQuery extends ReadQuery<String> {}
+final class FailingQuery() extends ReadQuery<String>;
 
 class FailingQueryHandler implements ReadHandler<FailingQuery, String> {
   @override
@@ -24,14 +20,14 @@ class FailingQueryHandler implements ReadHandler<FailingQuery, String> {
   }
 }
 
-final class TickQuery extends WatchQuery<int> {}
+final class TickQuery() extends WatchQuery<int>;
 
 class TickHandler implements WatchHandler<TickQuery, int> {
   @override
   Stream<int> watch(TickQuery query) => Stream.fromIterable([1, 2]);
 }
 
-final class BroadcastTickQuery extends WatchQuery<int> {}
+final class BroadcastTickQuery() extends WatchQuery<int>;
 
 class BroadcastTickHandler implements WatchHandler<BroadcastTickQuery, int> {
   @override
@@ -39,7 +35,7 @@ class BroadcastTickHandler implements WatchHandler<BroadcastTickQuery, int> {
       Stream.fromIterable([1, 2]).asBroadcastStream();
 }
 
-final class FailingTickQuery extends WatchQuery<int> {}
+final class FailingTickQuery() extends WatchQuery<int>;
 
 class FailingTickHandler implements WatchHandler<FailingTickQuery, int> {
   @override
@@ -49,11 +45,7 @@ class FailingTickHandler implements WatchHandler<FailingTickQuery, int> {
   }
 }
 
-final class SaveCommand extends Command<void> {
-  SaveCommand(this.name);
-
-  final String name;
-
+final class SaveCommand(final String name) extends Command<void> {
   @override
   Map<String, Object?> get params => {'name': name};
 }
@@ -139,22 +131,24 @@ void main() {
 
       await expectLater(
         mediator.read(GetUserQuery('42')),
-        throwsA(isA<HandlerNotRegisteredException>()),
+        throwsA(isA<HandlerNotRegisteredError>()),
       );
 
       expect(sink.records.single.event, ChassisLogEvent.error);
     });
 
-    test('watch logs completion, without per-event records by default',
-        () async {
-      final sink = FakeSink();
-      final mediator = Mediator()
-        ..registerQueryHandler(TickHandler())
-        ..addMiddleware(LoggingMiddleware(sink: sink));
+    test(
+      'watch logs completion, without per-event records by default',
+      () async {
+        final sink = FakeSink();
+        final mediator = Mediator()
+          ..registerQueryHandler(TickHandler())
+          ..addMiddleware(LoggingMiddleware(sink: sink));
 
-      expect(await mediator.watch(TickQuery()).toList(), [1, 2]);
-      expect(sink.events, [ChassisLogEvent.streamDone]);
-    });
+        expect(await mediator.watch(TickQuery()).toList(), [1, 2]);
+        expect(sink.events, [ChassisLogEvent.streamDone]);
+      },
+    );
 
     test('watch logs stream events when logStreamEvents is true', () async {
       final sink = FakeSink();
@@ -170,22 +164,24 @@ void main() {
       ]);
     });
 
-    test('watch logs stream errors and rethrows them to the listener',
-        () async {
-      final sink = FakeSink();
-      final mediator = Mediator()
-        ..registerQueryHandler(FailingTickHandler())
-        ..addMiddleware(LoggingMiddleware(sink: sink));
+    test(
+      'watch logs stream errors and rethrows them to the listener',
+      () async {
+        final sink = FakeSink();
+        final mediator = Mediator()
+          ..registerQueryHandler(FailingTickHandler())
+          ..addMiddleware(LoggingMiddleware(sink: sink));
 
-      await expectLater(
-        mediator.watch(FailingTickQuery()).toList(),
-        throwsA(isA<StateError>()),
-      );
+        await expectLater(
+          mediator.watch(FailingTickQuery()).toList(),
+          throwsA(isA<StateError>()),
+        );
 
-      // The error is logged; the listener (toList) cancels on error, so no
-      // done record follows.
-      expect(sink.events.first, ChassisLogEvent.error);
-    });
+        // The error is logged; the listener (toList) cancels on error, so no
+        // done record follows.
+        expect(sink.events.first, ChassisLogEvent.error);
+      },
+    );
 
     test('watch preserves the broadcast nature of the source stream', () async {
       final sink = FakeSink();

@@ -40,8 +40,10 @@ void main() {
     });
 
     test('Async.error carries a previous AsyncData', () {
-      final state =
-          Async<int>.error(StateError('x'), previous: const AsyncData(7));
+      final state = Async<int>.error(
+        StateError('x'),
+        previous: const AsyncData(7),
+      );
       expect(state.hasError, isTrue);
       expect(state.hasValue, isTrue);
       expect(state.valueOrNull, 7);
@@ -98,9 +100,10 @@ void main() {
     });
 
     test('toData replaces everything', () {
-      final result =
-          Async<int>.error(StateError('x'), previous: const AsyncData(1))
-              .toData(9);
+      final result = Async<int>.error(
+        StateError('x'),
+        previous: const AsyncData(1),
+      ).toData(9);
       expect(result, isA<AsyncData<int>>());
       expect(result.requireValue, 9);
     });
@@ -111,13 +114,47 @@ void main() {
     });
   });
 
+  group('Async.maybeDataOrPrevious', () {
+    test('returns the state itself when it is data', () {
+      const data = AsyncData(5);
+      expect(data.maybeDataOrPrevious, same(data));
+    });
+
+    test('returns the carried previous from loading and error', () {
+      const previous = AsyncData(5);
+      expect(
+        const Async<int>.loading(previous: previous).maybeDataOrPrevious,
+        same(previous),
+      );
+      expect(
+        Async<int>.error(
+          StateError('x'),
+          previous: previous,
+        ).maybeDataOrPrevious,
+        same(previous),
+      );
+    });
+
+    test('returns null when nothing was ever confirmed', () {
+      expect(const Async<int>.loading().maybeDataOrPrevious, isNull);
+      expect(Async<int>.error(StateError('x')).maybeDataOrPrevious, isNull);
+    });
+
+    test('is unambiguous for nullable T holding null', () {
+      const data = AsyncData<int?>(null);
+      final loading = data.toLoading();
+      expect(loading.valueOrNull, isNull); // ambiguous
+      expect(loading.maybeDataOrPrevious, same(data)); // provably existed
+    });
+  });
+
   group('Async.when', () {
     test('folds each state exhaustively', () {
       String fold(Async<int> s) => s.when(
-            data: (v) => 'data:$v',
-            loading: () => 'loading',
-            error: (e, _) => 'error:$e',
-          );
+        data: (v) => 'data:$v',
+        loading: () => 'loading',
+        error: (e, _) => 'error:$e',
+      );
 
       expect(fold(const Async.data(1)), 'data:1');
       expect(fold(const Async.loading()), 'loading');
@@ -136,11 +173,10 @@ void main() {
     test('error receives the stack trace', () {
       final stack = StackTrace.current;
       StackTrace? seen;
-      Async<int>.error(StateError('x'), stackTrace: stack).when(
-        data: (_) {},
-        loading: () {},
-        error: (e, s) => seen = s,
-      );
+      Async<int>.error(
+        StateError('x'),
+        stackTrace: stack,
+      ).when(data: (_) {}, loading: () {}, error: (e, s) => seen = s);
       expect(seen, stack);
     });
   });
@@ -151,27 +187,34 @@ void main() {
     });
 
     test('preserves loading and transforms the carried previous', () {
-      final mapped =
-          const Async<int>.loading(previous: AsyncData(2)).map((v) => 'v$v');
+      final mapped = const Async<int>.loading(previous: AsyncData(2))
+          .map((v) => 'v$v');
       expect(mapped, const Async<String>.loading(previous: AsyncData('v2')));
     });
 
     test('preserves error, stack trace, and transforms previous', () {
       final e = StateError('x');
       final stack = StackTrace.current;
-      final mapped =
-          Async<int>.error(e, stackTrace: stack, previous: const AsyncData(2))
-              .map((v) => 'v$v');
+      final mapped = Async<int>.error(
+        e,
+        stackTrace: stack,
+        previous: const AsyncData(2),
+      ).map((v) => 'v$v');
       expect(
         mapped,
-        Async<String>.error(e,
-            stackTrace: stack, previous: const AsyncData('v2')),
+        Async<String>.error(
+          e,
+          stackTrace: stack,
+          previous: const AsyncData('v2'),
+        ),
       );
     });
 
     test('empty loading maps to empty loading', () {
-      expect(const Async<int>.loading().map((v) => '$v'),
-          const Async<String>.loading());
+      expect(
+        const Async<int>.loading().map((v) => '$v'),
+        const Async<String>.loading(),
+      );
     });
 
     test('nullable values are mapped, not dropped', () {
@@ -209,8 +252,10 @@ void main() {
     });
 
     test('different type arguments are not equal', () {
-      expect(const Async<int>.loading(),
-          isNot(equals(const Async<String>.loading())));
+      expect(
+        const Async<int>.loading(),
+        isNot(equals(const Async<String>.loading())),
+      );
     });
   });
 }
